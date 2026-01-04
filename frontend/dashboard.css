@@ -148,9 +148,12 @@
 /* Mobile */
 @media (max-width: 480px) {
     .back-link {
-        left: 15px;
-        top: 35px;
-        font-size: 8px;
+        position: static;
+        display: block;
+        margin-top: 30px;
+        margin-bottom: 15px;
+        font-size: 9px;
+        text-align: center;
     }
     
     #codeInput {
