@@ -1,0 +1,135 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PixelLink - Analytics</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="style.css">
+    <link rel="stylesheet" href="dashboard.css">
+</head>
+<body>
+    <!-- Pixel decorations -->
+    <div class="pixel-corner top-left"></div>
+    <div class="pixel-corner top-right"></div>
+    <div class="pixel-corner bottom-left"></div>
+    <div class="pixel-corner bottom-right"></div>
+
+    <div class="pixel-dots">
+        <span></span><span></span><span></span><span></span><span></span>
+    </div>
+
+    <h1 class="title">Analytics</h1>
+    
+    <a href="index.html" class="back-link">← Back</a>
+
+    <div class="container">
+        <input type="text" id="codeInput" placeholder="Enter short code" />
+        <button id="checkBtn">Check</button>
+        <div id="errorMsg" class="error-message"></div>
+    </div>
+
+    <!-- Stats Result -->
+    <div id="statsResult" class="stats-result hidden">
+        <table class="stats-table">
+            <tr>
+                <th>Short Code</th>
+                <th>Clicks</th>
+                <th>Created</th>
+            </tr>
+            <tr>
+                <td id="resultCode">-</td>
+                <td id="resultClicks" class="clicks">0</td>
+                <td id="resultDate">-</td>
+            </tr>
+        </table>
+        <div class="url-row">
+            <span class="url-label">Original URL:</span>
+            <span id="resultUrl" class="url-value">-</span>
+        </div>
+    </div>
+
+    <script>
+        const API_URL = 'http://localhost:5000';
+        
+        const codeInput = document.getElementById('codeInput');
+        const checkBtn = document.getElementById('checkBtn');
+        const statsResult = document.getElementById('statsResult');
+        const resultCode = document.getElementById('resultCode');
+        const resultUrl = document.getElementById('resultUrl');
+        const resultClicks = document.getElementById('resultClicks');
+        const resultDate = document.getElementById('resultDate');
+        const errorMsg = document.getElementById('errorMsg');
+
+        function showError(message) {
+            errorMsg.textContent = message;
+            errorMsg.classList.add('visible');
+            setTimeout(() => {
+                errorMsg.classList.remove('visible');
+            }, 3000);
+        }
+
+        checkBtn.addEventListener('click', async () => {
+            let code = codeInput.value.trim();
+            errorMsg.classList.remove('visible');
+            
+            if (!code) {
+                showError('Please enter a short code');
+                return;
+            }
+
+            // Extract code if user pasted full URL
+            if (code.includes('/')) {
+                code = code.split('/').pop();
+            }
+
+            checkBtn.disabled = true;
+            checkBtn.textContent = 'Loading...';
+
+            try {
+                const response = await fetch(`${API_URL}/api/stats/${code}`);
+                const data = await response.json();
+
+                if (!response.ok) {
+                    throw new Error(data.error || 'URL not found');
+                }
+
+                resultCode.textContent = data.shortCode;
+                resultUrl.textContent = data.originalUrl;
+                resultUrl.title = data.originalUrl;
+                resultClicks.textContent = data.clicks;
+                resultDate.textContent = formatDate(data.createdAt);
+                
+                statsResult.classList.remove('hidden');
+
+            } catch (error) {
+                showError(error.message);
+                statsResult.classList.add('hidden');
+            } finally {
+                checkBtn.disabled = false;
+                checkBtn.textContent = 'Check';
+            }
+        });
+
+        // Allow Enter key to submit
+        codeInput.addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') {
+                checkBtn.click();
+            }
+        });
+
+        function formatDate(dateString) {
+            const date = new Date(dateString);
+            return date.toLocaleDateString('en-US', {
+                month: 'short',
+                day: 'numeric',
+                year: 'numeric',
+                hour: '2-digit',
+                minute: '2-digit'
+            });
+        }
+    </script>
+</body>
+</html>

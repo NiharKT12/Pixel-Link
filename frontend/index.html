@@ -1,0 +1,144 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>TinyURL - URL Shortener</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <!-- Pixel decorations -->
+    <div class="pixel-corner top-left"></div>
+    <div class="pixel-corner top-right"></div>
+    <div class="pixel-corner bottom-left"></div>
+    <div class="pixel-corner bottom-right"></div>
+    
+    <div class="pixel-dots">
+        <span></span><span></span><span></span><span></span><span></span>
+    </div>
+    
+    <h1 class="title">PixelLink</h1>
+    
+    <a href="dashboard.html" class="dashboard-link">Analytics →</a>
+    
+    <div class="container">
+        <input type="url" id="urlInput" placeholder="Enter the URL" />
+        <button id="shortenBtn">Shorten</button>
+        <div id="errorMsg" class="error-message"></div>
+    </div>
+    
+    <div class="pixel-dots bottom">
+        <span></span><span></span><span></span><span></span><span></span>
+    </div>
+
+    <!-- Popup Modal -->
+    <div id="popup" class="popup-overlay">
+        <div class="popup-content">
+            <span class="close-btn" id="closeBtn">&times;</span>
+            <h2>Shortened URL</h2>
+            <div class="url-box">
+                <input type="text" id="shortenedUrl" readonly />
+                <button id="copyBtn" title="Copy to clipboard">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
+                        <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+                    </svg>
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const API_URL = 'http://localhost:5000';
+        
+        const urlInput = document.getElementById('urlInput');
+        const shortenBtn = document.getElementById('shortenBtn');
+        const popup = document.getElementById('popup');
+        const closeBtn = document.getElementById('closeBtn');
+        const shortenedUrl = document.getElementById('shortenedUrl');
+        const copyBtn = document.getElementById('copyBtn');
+        const errorMsg = document.getElementById('errorMsg');
+
+        function showError(message) {
+            errorMsg.textContent = message;
+            errorMsg.classList.add('visible');
+            setTimeout(() => {
+                errorMsg.classList.remove('visible');
+            }, 3000);
+        }
+
+        shortenBtn.addEventListener('click', async () => {
+            let url = urlInput.value.trim();
+            errorMsg.classList.remove('visible');
+            
+            if (!url) {
+                showError('Please enter a URL');
+                return;
+            }
+
+            // Auto-add https:// if no protocol specified
+            if (!url.startsWith('http://') && !url.startsWith('https://')) {
+                url = 'https://' + url;
+            }
+
+            // Disable button while loading
+            shortenBtn.disabled = true;
+            shortenBtn.textContent = 'Loading...';
+
+            try {
+                const response = await fetch(`${API_URL}/api/shorten`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ url })
+                });
+
+                const data = await response.json();
+
+                if (!response.ok) {
+                    throw new Error(data.error || 'Failed to shorten URL');
+                }
+
+                shortenedUrl.value = data.shortUrl;
+                popup.classList.add('active');
+                urlInput.value = '';
+
+            } catch (error) {
+                showError(error.message);
+            } finally {
+                shortenBtn.disabled = false;
+                shortenBtn.textContent = 'Shorten';
+            }
+        });
+
+        // Allow Enter key to submit
+        urlInput.addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') {
+                shortenBtn.click();
+            }
+        });
+
+        closeBtn.addEventListener('click', () => {
+            popup.classList.remove('active');
+        });
+
+        popup.addEventListener('click', (e) => {
+            if (e.target === popup) {
+                popup.classList.remove('active');
+            }
+        });
+
+        copyBtn.addEventListener('click', () => {
+            navigator.clipboard.writeText(shortenedUrl.value);
+            copyBtn.classList.add('copied');
+            setTimeout(() => {
+                copyBtn.classList.remove('copied');
+            }, 2000);
+        });
+    </script>
+</body>
+</html>
