@@ -48,7 +48,7 @@ router.post('/shorten', async (req, res) => {
         
         if (existingUrl) {
             return res.json({
-                shortUrl: `${req.protocol}://${req.get('host')}/${existingUrl.shortCode}`,
+                shortUrl: `https://pixink.vercel.app/${existingUrl.shortCode}`,
                 shortCode: existingUrl.shortCode
             });
         }
@@ -71,7 +71,7 @@ router.post('/shorten', async (req, res) => {
         await redis.set(`url:${shortCode}`, url, 'EX', CACHE_TTL);
 
         res.status(201).json({
-            shortUrl: `${req.protocol}://${req.get('host')}/${shortCode}`,
+            shortUrl: `https://pixink.vercel.app/${shortCode}`,
             shortCode
         });
 
