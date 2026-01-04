@@ -37,6 +37,10 @@ app.get('/:code', async (req, res) => {
         if (cachedUrl) {
             // Reset TTL on access (keep popular links cached)
             await redis.expire(`url:${code}`, CACHE_TTL);
+            
+            // Increment click count in background (don't wait)
+            Url.updateOne({ shortCode: code }, { $inc: { clicks: 1 } }).exec();
+            
             return res.redirect(cachedUrl);
         }
 
@@ -50,7 +54,7 @@ app.get('/:code', async (req, res) => {
         // Cache the result with TTL
         await redis.set(`url:${code}`, urlDoc.originalUrl, 'EX', CACHE_TTL);
 
-        // Increment click count (optional tracking)
+        // Increment click count
         urlDoc.clicks += 1;
         await urlDoc.save();
 
