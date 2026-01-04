@@ -1,0 +1,8 @@
+{
+  "rewrites": [
+    {
+      "source": "/:code(\\d+|[a-zA-Z0-9]+)",
+      "destination": "https://pixel-link-2xiq.onrender.com/:code"
+    }
+  ]
+}
