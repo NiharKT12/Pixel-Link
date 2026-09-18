@@ -4,6 +4,8 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>PixelLink - Analytics</title>
+    <meta name="description" content="Look up click analytics for a Pixel Link short code.">
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><rect width='16' height='16' fill='%231a1a2e'/><rect x='3' y='6' width='4' height='4' fill='%23ff6b9d'/><rect x='9' y='6' width='4' height='4' fill='%2354d7ff'/></svg>">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet">
@@ -12,32 +14,34 @@
 </head>
 <body>
     <!-- Pixel decorations -->
-    <div class="pixel-corner top-left"></div>
-    <div class="pixel-corner top-right"></div>
-    <div class="pixel-corner bottom-left"></div>
-    <div class="pixel-corner bottom-right"></div>
+    <div class="pixel-corner top-left" aria-hidden="true"></div>
+    <div class="pixel-corner top-right" aria-hidden="true"></div>
+    <div class="pixel-corner bottom-left" aria-hidden="true"></div>
+    <div class="pixel-corner bottom-right" aria-hidden="true"></div>
 
-    <div class="pixel-dots">
+    <div class="pixel-dots" aria-hidden="true">
         <span></span><span></span><span></span><span></span><span></span>
     </div>
 
     <h1 class="title">Analytics</h1>
-    
+
     <a href="index.html" class="back-link">← Back</a>
 
-    <div class="container">
-        <input type="text" id="codeInput" placeholder="Enter short code" />
+    <main class="container">
+        <label class="visually-hidden" for="codeInput">Short code or full short URL</label>
+        <input type="text" id="codeInput" placeholder="Enter short code" autocomplete="off" spellcheck="false" />
         <button id="checkBtn">Check</button>
-        <div id="errorMsg" class="error-message"></div>
-    </div>
+        <div id="errorMsg" class="error-message" role="status" aria-live="polite"></div>
+    </main>
 
     <!-- Stats Result -->
     <div id="statsResult" class="stats-result hidden">
         <table class="stats-table">
+            <caption class="visually-hidden">Statistics for the requested short code</caption>
             <tr>
-                <th>Short Code</th>
-                <th>Clicks</th>
-                <th>Created</th>
+                <th scope="col">Short Code</th>
+                <th scope="col">Clicks</th>
+                <th scope="col">Created</th>
             </tr>
             <tr>
                 <td id="resultCode">-</td>
@@ -51,9 +55,8 @@
         </div>
     </div>
 
+    <script src="app.js"></script>
     <script>
-        const API_URL = 'https://pixel-link-2xiq.onrender.com';
-        
         const codeInput = document.getElementById('codeInput');
         const checkBtn = document.getElementById('checkBtn');
         const statsResult = document.getElementById('statsResult');
@@ -61,68 +64,13 @@
         const resultUrl = document.getElementById('resultUrl');
         const resultClicks = document.getElementById('resultClicks');
         const resultDate = document.getElementById('resultDate');
-        const errorMsg = document.getElementById('errorMsg');
-
-        function showError(message) {
-            errorMsg.textContent = message;
-            errorMsg.classList.add('visible');
-            setTimeout(() => {
-                errorMsg.classList.remove('visible');
-            }, 3000);
-        }
-
-        checkBtn.addEventListener('click', async () => {
-            let code = codeInput.value.trim();
-            errorMsg.classList.remove('visible');
-            
-            if (!code) {
-                showError('Please enter a short code');
-                return;
-            }
-
-            // Extract code if user pasted full URL
-            if (code.includes('/')) {
-                code = code.split('/').pop();
-            }
-
-            checkBtn.disabled = true;
-            checkBtn.textContent = 'Loading...';
-
-            try {
-                const response = await fetch(`${API_URL}/api/stats/${code}`);
-                const data = await response.json();
-
-                if (!response.ok) {
-                    throw new Error(data.error || 'URL not found');
-                }
-
-                resultCode.textContent = data.shortCode;
-                resultUrl.textContent = data.originalUrl;
-                resultUrl.title = data.originalUrl;
-                resultClicks.textContent = data.clicks;
-                resultDate.textContent = formatDate(data.createdAt);
-                
-                statsResult.classList.remove('hidden');
-
-            } catch (error) {
-                showError(error.message);
-                statsResult.classList.add('hidden');
-            } finally {
-                checkBtn.disabled = false;
-                checkBtn.textContent = 'Check';
-            }
-        });
-
-        // Allow Enter key to submit
-        codeInput.addEventListener('keypress', (e) => {
-            if (e.key === 'Enter') {
-                checkBtn.click();
-            }
-        });
+        const showError = createErrorReporter(document.getElementById('errorMsg'));
 
         function formatDate(dateString) {
             const date = new Date(dateString);
-            return date.toLocaleDateString('en-US', {
+            if (Number.isNaN(date.getTime())) return '-';
+
+            return date.toLocaleDateString(undefined, {
                 month: 'short',
                 day: 'numeric',
                 year: 'numeric',
@@ -130,6 +78,44 @@
                 minute: '2-digit'
             });
         }
+
+        checkBtn.addEventListener('click', async () => {
+            let code = codeInput.value.trim();
+
+            if (!code) {
+                showError('Please enter a short code');
+                return;
+            }
+
+            // Accept a pasted full URL as well as a bare code
+            if (code.includes('/')) {
+                code = code.split('/').filter(Boolean).pop() || '';
+            }
+
+            if (!/^[0-9a-zA-Z]{1,12}$/.test(code)) {
+                showError('That does not look like a short code');
+                return;
+            }
+
+            try {
+                const data = await withBusyButton(checkBtn, 'Loading...', () =>
+                    requestJson(`/api/stats/${encodeURIComponent(code)}`)
+                );
+
+                resultCode.textContent = data.shortCode;
+                resultUrl.textContent = data.originalUrl;
+                resultUrl.title = data.originalUrl;
+                resultClicks.textContent = data.clicks;
+                resultDate.textContent = formatDate(data.createdAt);
+
+                statsResult.classList.remove('hidden');
+            } catch (error) {
+                showError(error.message);
+                statsResult.classList.add('hidden');
+            }
+        });
+
+        submitOnEnter(codeInput, checkBtn);
     </script>
 </body>
 </html>

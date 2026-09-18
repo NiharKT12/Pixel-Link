@@ -211,6 +211,12 @@ body {
     font-size: 28px;
     color: var(--pixel-pink);
     cursor: pointer;
+    /* Now a real <button> so it is keyboard reachable - strip the UA chrome */
+    background: none;
+    border: none;
+    padding: 0;
+    line-height: 1;
+    font-family: inherit;
 }
 
 .close-btn:hover {
@@ -496,5 +502,68 @@ body {
     
     .dashboard-link {
         font-size: 7px;
+    }
+}
+
+/* ==================== ACCESSIBILITY ==================== */
+
+/* Label text for screen readers only */
+.visually-hidden {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    margin: -1px;
+    padding: 0;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border: 0;
+}
+
+/* The dialog is toggled with the hidden attribute as well as .active */
+[hidden] {
+    display: none !important;
+}
+
+/* Every interactive element gets a visible keyboard focus ring. The inputs
+   set outline: none and replace it with a border colour, so they need one
+   too - especially the popup input, which previously had no focus style. */
+#urlInput:focus-visible,
+#codeInput:focus-visible,
+#shortenedUrl:focus-visible,
+#shortenBtn:focus-visible,
+#checkBtn:focus-visible,
+#copyBtn:focus-visible,
+.close-btn:focus-visible,
+.dashboard-link:focus-visible,
+.back-link:focus-visible {
+    outline: 3px solid var(--pixel-yellow);
+    outline-offset: 3px;
+}
+
+#shortenedUrl:focus {
+    border-color: var(--pixel-pink);
+    box-shadow: 3px 3px 0px var(--pixel-pink);
+}
+
+/* Copy feedback next to the shortened URL */
+.copy-status {
+    margin-top: 14px;
+    font-size: 9px;
+    line-height: 1.6;
+    color: var(--pixel-green);
+    min-height: 14px;
+}
+
+/* Respect a reduced-motion preference: the blinking dots and all
+   transitions are decorative. */
+@media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+        animation-duration: 0.01ms !important;
+        animation-iteration-count: 1 !important;
+        transition-duration: 0.01ms !important;
+        scroll-behavior: auto !important;
     }
 }

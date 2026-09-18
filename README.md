@@ -2,7 +2,7 @@
 
 A retro pixel-art themed URL shortener with analytics dashboard.
 
-![Pixel Link](https://img.shields.io/badge/Status-Live-brightgreen) ![Node.js](https://img.shields.io/badge/Node.js-18+-green) ![MongoDB](https://img.shields.io/badge/MongoDB-Atlas-green) ![Redis](https://img.shields.io/badge/Redis-Cloud-red)
+![Pixel Link](https://img.shields.io/badge/Status-Live-brightgreen) ![Node.js](https://img.shields.io/badge/Node.js-18+-green) ![MongoDB](https://img.shields.io/badge/MongoDB-Atlas-green) ![Redis](https://img.shields.io/badge/Redis-Cloud-red) ![License](https://img.shields.io/badge/License-MIT-blue)
 
 ## 🌐 Live Demo
 
@@ -14,6 +14,8 @@ A retro pixel-art themed URL shortener with analytics dashboard.
 - 🔗 **URL Shortening** - Convert long URLs into short, shareable links
 - 📊 **Analytics Dashboard** - Track click counts for your shortened URLs
 - ⚡ **Redis Caching** - Fast redirects with 1-hour TTL caching
+- 🛡️ **Rate Limited** - Per-IP limits keep the API from being flooded
+- ♿ **Accessible** - Labelled controls, keyboard-navigable dialog, reduced-motion support
 - 📱 **Responsive Design** - Works on desktop, tablet, and mobile
 - 🎨 **Pixel Art Theme** - Retro gaming aesthetic with animations
 
@@ -42,34 +44,54 @@ User Request → Vercel (Frontend) → Render (Backend API)
 ```
 
 **Short URL Generation:**
-1. Redis counter increments atomically
-2. Counter value encoded to Base62 (a-z, A-Z, 0-9)
-3. Results in short codes like `a`, `b`, ... `z`, `A`, ... `10`, `11`, etc.
+1. A counter increments atomically (Redis, falling back to MongoDB if Redis is down)
+2. The counter value is scrambled by a modular multiplication that is bijective
+   over the code space, so ids stay unique but codes are not sequential and the
+   link space cannot be enumerated by incrementing a code
+3. The result is encoded to Base62 (`0-9`, `a-z`, `A-Z`), producing codes like `qdzLz`
+
+**Resilience:**
+- Redis is optional. If `REDIS_URL` is unset, or the instance is deleted or
+  unreachable, redirects and shortening keep working from MongoDB alone
+- Counters are reseeded past the highest stored id at boot, so a wiped or
+  recreated Redis can never hand out an id that is already taken
+- Paths that cannot be a short code are rejected before reaching the database
 
 ## 📡 API Endpoints
 
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| POST | `/api/shorten` | Create a short URL |
-| GET | `/:code` | Redirect to original URL |
-| GET | `/api/stats/:code` | Get URL statistics |
-| GET | `/api/urls` | List all URLs (admin) |
+| Method | Endpoint | Auth | Description |
+|--------|----------|------|-------------|
+| GET | `/health` | – | Liveness/readiness of MongoDB and Redis |
+| POST | `/api/shorten` | – | Create a short URL (30 per 15 min per IP) |
+| GET | `/:code` | – | Redirect to original URL |
+| GET | `/api/stats/:code` | – | Get URL statistics |
+| GET | `/api/urls` | `x-admin-key` | Paginated list of all URLs |
 
 ### Example: Shorten a URL
 
 ```bash
 curl -X POST https://pixel-link-2xiq.onrender.com/api/shorten \
   -H "Content-Type: application/json" \
-  -d '{"originalUrl": "https://example.com/very/long/url"}'
+  -d '{"url": "https://example.com/very/long/url"}'
 ```
 
 Response:
+
 ```json
 {
-  "shortUrl": "https://pixink.vercel.app/a1B",
-  "shortCode": "a1B",
-  "originalUrl": "https://example.com/very/long/url"
+  "shortUrl": "https://pixink.vercel.app/qdzLz",
+  "shortCode": "qdzLz"
 }
+```
+
+### Example: List all URLs (admin)
+
+`ADMIN_KEY` must be set on the server; without it the endpoint returns `503`
+rather than exposing data.
+
+```bash
+curl https://pixel-link-2xiq.onrender.com/api/urls?page=1&limit=20 \
+  -H "x-admin-key: $ADMIN_KEY"
 ```
 
 ## 🚀 Run Locally
@@ -77,7 +99,7 @@ Response:
 ### Prerequisites
 - Node.js 18+
 - MongoDB Atlas account
-- Redis Cloud account (or local Redis)
+- Redis Cloud account (or local Redis) - **optional**, see `REDIS_URL` below
 
 ### Setup
 
@@ -95,16 +117,22 @@ Response:
 
 3. **Create environment file**
    ```bash
-   # backend/.env
-   MONGO_URI=mongodb+srv://<user>:<pass>@cluster.mongodb.net/pixellink
-   REDIS_URL=redis://default:<pass>@<host>:<port>
-   PORT=5000
-   CACHE_TTL=3600
+   cp .env.example .env
    ```
+
+   | Variable | Required | Description |
+   |----------|----------|-------------|
+   | `MONGO_URI` | yes | MongoDB connection string |
+   | `REDIS_URL` | no | Redis connection string. Unset = run without a cache (MongoDB only) |
+   | `PORT` | no | API port (default `5000`) |
+   | `CACHE_TTL` | no | Redirect cache lifetime in seconds (default `3600`) |
+   | `BASE_URL` | no | Public origin short links are built from (default `http://localhost:$PORT`) |
+   | `FRONTEND_URL` | no | Origin allowed by CORS; unset allows any origin (dev only) |
+   | `ADMIN_KEY` | no | Shared secret for `GET /api/urls`; unset keeps it closed |
 
 4. **Start the backend**
    ```bash
-   npm start
+   npm start      # or: npm run dev  (restarts on file changes)
    ```
 
 5. **Open the frontend**
@@ -118,6 +146,7 @@ Pixel-Link/
 ├── frontend/
 │   ├── index.html        # Main shortener page
 │   ├── dashboard.html    # Analytics dashboard
+│   ├── app.js            # Shared frontend helpers
 │   ├── style.css         # Main styles
 │   ├── dashboard.css     # Dashboard styles
 │   └── vercel.json       # Vercel routing config
@@ -126,18 +155,27 @@ Pixel-Link/
 │   ├── routes/
 │   │   └── url.js        # API routes
 │   ├── models/
-│   │   └── Url.js        # MongoDB schema
+│   │   ├── Url.js        # MongoDB schema
+│   │   └── Counter.js    # Durable id counter (Redis fallback)
+│   ├── lib/
+│   │   ├── shortcode.js  # Base62 encoding & code validation
+│   │   ├── ids.js        # Id allocation and counter syncing
+│   │   └── config.js     # Parsed environment configuration
+│   ├── middleware/
+│   │   └── rateLimit.js  # Per-IP rate limiters
 │   ├── config/
 │   │   └── redis.js      # Redis connection
 │   ├── package.json
+│   ├── .env.example      # Template for environment variables
 │   └── .env              # Environment variables (not in repo)
 ├── .gitignore
+├── LICENSE
 └── README.md
 ```
 
 ## 📝 License
 
-MIT License - feel free to use this project for learning or your own purposes!
+[MIT](LICENSE) - feel free to use this project for learning or your own purposes!
 
 ---
 

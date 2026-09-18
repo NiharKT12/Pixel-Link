@@ -1,20 +1,43 @@
 const Redis = require('ioredis');
 
-const redis = new Redis(process.env.REDIS_URL, {
-    maxRetriesPerRequest: 3,
-    retryDelayOnFailover: 100,
-    lazyConnect: true
-});
+// Redis is a cache and a fast id source - not a hard dependency. When
+// REDIS_URL is unset we run in a disabled mode instead of letting ioredis
+// fall back to localhost:6379 and retry forever against nothing.
+function createDisabledClient() {
+    console.warn('⚠️  REDIS_URL not set - running without cache (MongoDB only)');
 
-redis.on('connect', () => {
-    console.log('✅ Connected to Redis');
-});
+    return {
+        enabled: false,
+        // A disabled cache is simply a permanent miss
+        async get() { return null; },
+        async set() { return 'OK'; },
+        async expire() { return 0; },
+        async ping() { return null; },
+        async quit() { return 'OK'; }
+    };
+}
 
-redis.on('error', (err) => {
-    console.error('❌ Redis error:', err.message);
-});
+function createClient() {
+    const client = new Redis(process.env.REDIS_URL, {
+        maxRetriesPerRequest: 3,
+        lazyConnect: true
+    });
 
-// Connect to Redis
-redis.connect().catch(console.error);
+    client.enabled = true;
 
-module.exports = redis;
+    client.on('connect', () => {
+        console.log('✅ Connected to Redis');
+    });
+
+    client.on('error', (err) => {
+        console.error('❌ Redis error:', err.message);
+    });
+
+    client.connect().catch((err) => {
+        console.error('❌ Redis initial connect failed:', err.message);
+    });
+
+    return client;
+}
+
+module.exports = process.env.REDIS_URL ? createClient() : createDisabledClient();

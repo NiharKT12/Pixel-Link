@@ -2,21 +2,10 @@ const express = require('express');
 const router = express.Router();
 const Url = require('../models/Url');
 const redis = require('../config/redis');
-
-// Base62 character set
-const CHARSET = '0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ';
-
-// Convert number to Base62
-function toBase62(num) {
-    if (num === 0) return CHARSET[0];
-    
-    let encoded = '';
-    while (num > 0) {
-        encoded = CHARSET[num % 62] + encoded;
-        num = Math.floor(num / 62);
-    }
-    return encoded;
-}
+const { encodeId } = require('../lib/shortcode');
+const { nextId } = require('../lib/ids');
+const { cacheTtl, baseUrl, adminKey } = require('../lib/config');
+const { shortenLimiter } = require('../middleware/rateLimit');
 
 // Validate URL format
 function isValidUrl(string) {
@@ -28,13 +17,29 @@ function isValidUrl(string) {
     }
 }
 
+// Reject requests that only an authorised operator should make
+function requireAdmin(req, res, next) {
+    const key = adminKey();
+
+    // Fail closed: an unset key locks the endpoint rather than opening it
+    if (!key) {
+        return res.status(503).json({ error: 'Admin endpoint is not configured' });
+    }
+
+    if (req.get('x-admin-key') !== key) {
+        return res.status(401).json({ error: 'Unauthorized' });
+    }
+
+    next();
+}
+
 // POST /api/shorten - Create short URL
-router.post('/shorten', async (req, res) => {
-    const { url } = req.body;
-    const CACHE_TTL = process.env.CACHE_TTL || 3600;
+router.post('/shorten', shortenLimiter, async (req, res, next) => {
+    const { url } = req.body || {};
+    const TTL = cacheTtl();
 
     // Validate input
-    if (!url) {
+    if (!url || typeof url !== 'string') {
         return res.status(400).json({ error: 'URL is required' });
     }
 
@@ -45,47 +50,58 @@ router.post('/shorten', async (req, res) => {
     try {
         // Check if URL already exists
         const existingUrl = await Url.findOne({ originalUrl: url });
-        
+
         if (existingUrl) {
             return res.json({
-                shortUrl: `https://pixink.vercel.app/${existingUrl.shortCode}`,
+                shortUrl: `${baseUrl()}/${existingUrl.shortCode}`,
                 shortCode: existingUrl.shortCode
             });
         }
 
-        // Get unique ID from Redis counter
-        const numericId = await redis.incr('url_counter');
-        
-        // Convert to Base62
-        const shortCode = toBase62(numericId);
+        // Allocate an id and store the link. A duplicate-key error means the
+        // counter had drifted behind the data; retrying advances past the
+        // collision instead of surfacing a 500.
+        let saved = null;
+        let lastError = null;
 
-        // Save to MongoDB
-        const newUrl = new Url({
-            originalUrl: url,
-            shortCode,
-            numericId
-        });
-        await newUrl.save();
+        for (let attempt = 0; attempt < 5 && !saved; attempt++) {
+            const numericId = await nextId();
+            const shortCode = encodeId(numericId);
 
-        // Cache in Redis with TTL
-        await redis.set(`url:${shortCode}`, url, 'EX', CACHE_TTL);
+            try {
+                saved = await new Url({ originalUrl: url, shortCode, numericId }).save();
+            } catch (err) {
+                if (err.code !== 11000) throw err;
+                lastError = err;
+                console.warn(`⚠️  Duplicate id ${numericId}, retrying (attempt ${attempt + 1})`);
+            }
+        }
+
+        if (!saved) throw lastError;
+
+        // Cache in Redis with TTL. A cache write failure must not fail the
+        // request - the link is already durable in MongoDB.
+        try {
+            await redis.set(`url:${saved.shortCode}`, url, 'EX', TTL);
+        } catch (err) {
+            console.error('⚠️  Cache write failed:', err.message);
+        }
 
         res.status(201).json({
-            shortUrl: `https://pixink.vercel.app/${shortCode}`,
-            shortCode
+            shortUrl: `${baseUrl()}/${saved.shortCode}`,
+            shortCode: saved.shortCode
         });
 
     } catch (error) {
-        console.error('Shorten error:', error);
-        res.status(500).json({ error: 'Server error' });
+        next(error);
     }
 });
 
-// GET /api/stats/:code - Get URL statistics (optional)
-router.get('/stats/:code', async (req, res) => {
+// GET /api/stats/:code - Get URL statistics
+router.get('/stats/:code', async (req, res, next) => {
     try {
         const urlDoc = await Url.findOne({ shortCode: req.params.code });
-        
+
         if (!urlDoc) {
             return res.status(404).json({ error: 'Short URL not found' });
         }
@@ -97,28 +113,39 @@ router.get('/stats/:code', async (req, res) => {
             createdAt: urlDoc.createdAt
         });
     } catch (error) {
-        console.error('Stats error:', error);
-        res.status(500).json({ error: 'Server error' });
+        next(error);
     }
 });
 
-// GET /api/urls - Get all URLs for dashboard
-router.get('/urls', async (req, res) => {
+// GET /api/urls - Paginated list of every link. Admin only: this exposes the
+// full link space, so it is never reachable without the shared key.
+router.get('/urls', requireAdmin, async (req, res, next) => {
     try {
-        const urls = await Url.find()
-            .sort({ createdAt: -1 })
-            .select('shortCode originalUrl clicks createdAt');
-        
-        const totalClicks = urls.reduce((sum, url) => sum + url.clicks, 0);
+        const page = Math.max(1, parseInt(req.query.page, 10) || 1);
+        const limit = Math.min(100, Math.max(1, parseInt(req.query.limit, 10) || 20));
+
+        const [urls, totalLinks, totals] = await Promise.all([
+            Url.find()
+                .sort({ createdAt: -1 })
+                .skip((page - 1) * limit)
+                .limit(limit)
+                .select('shortCode originalUrl clicks createdAt')
+                .lean(),
+            Url.countDocuments(),
+            // Totals span the whole collection, not just this page
+            Url.aggregate([{ $group: { _id: null, clicks: { $sum: '$clicks' } } }])
+        ]);
 
         res.json({
             urls,
-            totalLinks: urls.length,
-            totalClicks
+            page,
+            limit,
+            totalPages: Math.ceil(totalLinks / limit) || 1,
+            totalLinks,
+            totalClicks: totals[0] ? totals[0].clicks : 0
         });
     } catch (error) {
-        console.error('Fetch URLs error:', error);
-        res.status(500).json({ error: 'Server error' });
+        next(error);
     }
 });
 

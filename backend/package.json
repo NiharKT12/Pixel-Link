@@ -1,19 +1,30 @@
 {
-  "name": "backend",
+  "name": "pixel-link-backend",
   "version": "1.0.0",
   "main": "server.js",
-  "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1",
-    "start": "node server.js"
+  "description": "API for Pixel Link, a retro pixel-art themed URL shortener with Redis caching and click analytics.",
+  "author": "NiharKT12",
+  "license": "MIT",
+  "keywords": [
+    "url-shortener",
+    "express",
+    "mongodb",
+    "redis",
+    "base62"
+  ],
+  "engines": {
+    "node": ">=18"
   },
-  "keywords": [],
-  "author": "",
-  "license": "ISC",
-  "description": "",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node --watch server.js",
+    "test": "node --test"
+  },
   "dependencies": {
     "cors": "^2.8.5",
     "dotenv": "^17.2.3",
     "express": "^5.2.1",
+    "express-rate-limit": "^8.1.0",
     "ioredis": "^5.8.2",
     "mongoose": "^9.1.1"
   }

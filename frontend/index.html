@@ -4,6 +4,8 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Pixel Link - URL Shortener</title>
+    <meta name="description" content="Turn long links into short, shareable pixel-art URLs.">
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><rect width='16' height='16' fill='%231a1a2e'/><rect x='3' y='6' width='4' height='4' fill='%23ff6b9d'/><rect x='9' y='6' width='4' height='4' fill='%2354d7ff'/></svg>">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet">
@@ -11,133 +13,152 @@
 </head>
 <body>
     <!-- Pixel decorations -->
-    <div class="pixel-corner top-left"></div>
-    <div class="pixel-corner top-right"></div>
-    <div class="pixel-corner bottom-left"></div>
-    <div class="pixel-corner bottom-right"></div>
-    
-    <div class="pixel-dots">
+    <div class="pixel-corner top-left" aria-hidden="true"></div>
+    <div class="pixel-corner top-right" aria-hidden="true"></div>
+    <div class="pixel-corner bottom-left" aria-hidden="true"></div>
+    <div class="pixel-corner bottom-right" aria-hidden="true"></div>
+
+    <div class="pixel-dots" aria-hidden="true">
         <span></span><span></span><span></span><span></span><span></span>
     </div>
-    
+
     <h1 class="title">PixelLink</h1>
-    
+
     <a href="dashboard.html" class="dashboard-link">Analytics →</a>
-    
-    <div class="container">
-        <input type="url" id="urlInput" placeholder="Enter the URL" />
+
+    <main class="container">
+        <label class="visually-hidden" for="urlInput">URL to shorten</label>
+        <input type="url" id="urlInput" placeholder="Enter the URL" autocomplete="url" spellcheck="false" />
         <button id="shortenBtn">Shorten</button>
-        <div id="errorMsg" class="error-message"></div>
-    </div>
-    
-    <div class="pixel-dots bottom">
+        <div id="errorMsg" class="error-message" role="status" aria-live="polite"></div>
+    </main>
+
+    <div class="pixel-dots bottom" aria-hidden="true">
         <span></span><span></span><span></span><span></span><span></span>
     </div>
 
     <!-- Popup Modal -->
-    <div id="popup" class="popup-overlay">
+    <div id="popup" class="popup-overlay" role="dialog" aria-modal="true" aria-labelledby="popupTitle" hidden>
         <div class="popup-content">
-            <span class="close-btn" id="closeBtn">&times;</span>
-            <h2>Shortened URL</h2>
+            <button class="close-btn" id="closeBtn" aria-label="Close">&times;</button>
+            <h2 id="popupTitle">Shortened URL</h2>
             <div class="url-box">
+                <label class="visually-hidden" for="shortenedUrl">Your shortened URL</label>
                 <input type="text" id="shortenedUrl" readonly />
-                <button id="copyBtn" title="Copy to clipboard">
-                    <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <button id="copyBtn" title="Copy to clipboard" aria-label="Copy to clipboard">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
                         <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
                         <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
                     </svg>
                 </button>
             </div>
+            <div id="copyStatus" class="copy-status" role="status" aria-live="polite"></div>
         </div>
     </div>
 
+    <script src="app.js"></script>
     <script>
-        const API_URL = 'https://pixel-link-2xiq.onrender.com';
-        
         const urlInput = document.getElementById('urlInput');
         const shortenBtn = document.getElementById('shortenBtn');
         const popup = document.getElementById('popup');
         const closeBtn = document.getElementById('closeBtn');
         const shortenedUrl = document.getElementById('shortenedUrl');
         const copyBtn = document.getElementById('copyBtn');
-        const errorMsg = document.getElementById('errorMsg');
+        const copyStatus = document.getElementById('copyStatus');
+        const showError = createErrorReporter(document.getElementById('errorMsg'));
 
-        function showError(message) {
-            errorMsg.textContent = message;
-            errorMsg.classList.add('visible');
-            setTimeout(() => {
-                errorMsg.classList.remove('visible');
-            }, 3000);
+        // Element focused before the dialog opened, so focus can be handed back
+        let lastFocused = null;
+
+        function openPopup() {
+            lastFocused = document.activeElement;
+            popup.hidden = false;
+            popup.classList.add('active');
+            shortenedUrl.focus();
+            shortenedUrl.select();
+        }
+
+        function closePopup() {
+            popup.classList.remove('active');
+            popup.hidden = true;
+            copyStatus.textContent = '';
+            if (lastFocused) lastFocused.focus();
         }
 
         shortenBtn.addEventListener('click', async () => {
             let url = urlInput.value.trim();
-            errorMsg.classList.remove('visible');
-            
+
             if (!url) {
                 showError('Please enter a URL');
                 return;
             }
 
             // Auto-add https:// if no protocol specified
-            if (!url.startsWith('http://') && !url.startsWith('https://')) {
+            if (!/^https?:\/\//i.test(url)) {
                 url = 'https://' + url;
             }
 
-            // Disable button while loading
-            shortenBtn.disabled = true;
-            shortenBtn.textContent = 'Loading...';
-
             try {
-                const response = await fetch(`${API_URL}/api/shorten`, {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json'
-                    },
-                    body: JSON.stringify({ url })
-                });
-
-                const data = await response.json();
-
-                if (!response.ok) {
-                    throw new Error(data.error || 'Failed to shorten URL');
-                }
+                const data = await withBusyButton(shortenBtn, 'Loading...', () =>
+                    requestJson('/api/shorten', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ url })
+                    })
+                );
 
                 shortenedUrl.value = data.shortUrl;
-                popup.classList.add('active');
                 urlInput.value = '';
-
+                openPopup();
             } catch (error) {
                 showError(error.message);
-            } finally {
-                shortenBtn.disabled = false;
-                shortenBtn.textContent = 'Shorten';
             }
         });
 
-        // Allow Enter key to submit
-        urlInput.addEventListener('keypress', (e) => {
-            if (e.key === 'Enter') {
-                shortenBtn.click();
-            }
-        });
+        submitOnEnter(urlInput, shortenBtn);
 
-        closeBtn.addEventListener('click', () => {
-            popup.classList.remove('active');
-        });
+        closeBtn.addEventListener('click', closePopup);
 
         popup.addEventListener('click', (e) => {
-            if (e.target === popup) {
-                popup.classList.remove('active');
+            if (e.target === popup) closePopup();
+        });
+
+        // Escape closes the dialog, and Tab is trapped inside it
+        popup.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape') {
+                closePopup();
+                return;
+            }
+
+            if (e.key !== 'Tab') return;
+
+            const focusable = popup.querySelectorAll('button, input');
+            const first = focusable[0];
+            const last = focusable[focusable.length - 1];
+
+            if (e.shiftKey && document.activeElement === first) {
+                e.preventDefault();
+                last.focus();
+            } else if (!e.shiftKey && document.activeElement === last) {
+                e.preventDefault();
+                first.focus();
             }
         });
 
-        copyBtn.addEventListener('click', () => {
-            navigator.clipboard.writeText(shortenedUrl.value);
-            copyBtn.classList.add('copied');
-            setTimeout(() => {
-                copyBtn.classList.remove('copied');
-            }, 2000);
+        copyBtn.addEventListener('click', async () => {
+            try {
+                await copyText(shortenedUrl.value);
+                copyBtn.classList.add('copied');
+                copyStatus.textContent = 'Copied!';
+                setTimeout(() => {
+                    copyBtn.classList.remove('copied');
+                    copyStatus.textContent = '';
+                }, 2000);
+            } catch (error) {
+                // Selecting the text at least lets the user copy manually
+                shortenedUrl.select();
+                copyStatus.textContent = error.message + ' - press Ctrl+C';
+            }
         });
     </script>
 </body>
