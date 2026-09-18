@@ -2,7 +2,7 @@ const express = require('express');
 const router = express.Router();
 const Url = require('../models/Url');
 const redis = require('../config/redis');
-const { encodeId } = require('../lib/shortcode');
+const { encodeId, validateCustomCode } = require('../lib/shortcode');
 const { nextId } = require('../lib/ids');
 const { cacheTtl, baseUrl, adminKey } = require('../lib/config');
 const { shortenLimiter } = require('../middleware/rateLimit');
@@ -33,10 +33,19 @@ function requireAdmin(req, res, next) {
     next();
 }
 
-// POST /api/shorten - Create short URL
+// Cache a link, but never fail the request over a cache write - the link is
+// already durable in MongoDB by this point.
+async function cacheLink(shortCode, url) {
+    try {
+        await redis.set(`url:${shortCode}`, url, 'EX', cacheTtl());
+    } catch (err) {
+        console.error('⚠️  Cache write failed:', err.message);
+    }
+}
+
+// POST /api/shorten - Create short URL, optionally under a custom name
 router.post('/shorten', shortenLimiter, async (req, res, next) => {
-    const { url } = req.body || {};
-    const TTL = cacheTtl();
+    const { url, customCode } = req.body || {};
 
     // Validate input
     if (!url || typeof url !== 'string') {
@@ -47,20 +56,67 @@ router.post('/shorten', shortenLimiter, async (req, res, next) => {
         return res.status(400).json({ error: 'Invalid URL format' });
     }
 
+    // Treat an empty/whitespace custom name as "not supplied"
+    const wanted = typeof customCode === 'string' ? customCode.trim() : '';
+
+    if (wanted) {
+        const problem = validateCustomCode(wanted);
+        if (problem) return res.status(400).json({ error: problem });
+    }
+
     try {
+        if (wanted) {
+            // Custom names are explicit, so they always create a new link even
+            // if this URL was shortened before.
+            const taken = await Url.findOne({ shortCode: wanted }).select('_id').lean();
+            if (taken) {
+                return res.status(409).json({ error: `"${wanted}" is already taken` });
+            }
+
+            // A numericId is still allocated so the unique index holds and the
+            // generated-code sequence keeps moving.
+            const numericId = await nextId();
+
+            let saved;
+            try {
+                saved = await new Url({
+                    originalUrl: url,
+                    shortCode: wanted,
+                    numericId,
+                    isCustom: true
+                }).save();
+            } catch (err) {
+                // Lost a race against a concurrent request for the same name
+                if (err.code === 11000) {
+                    return res.status(409).json({ error: `"${wanted}" is already taken` });
+                }
+                throw err;
+            }
+
+            await cacheLink(saved.shortCode, url);
+
+            return res.status(201).json({
+                shortUrl: `${baseUrl()}/${saved.shortCode}`,
+                shortCode: saved.shortCode,
+                isCustom: true
+            });
+        }
+
         // Check if URL already exists
-        const existingUrl = await Url.findOne({ originalUrl: url });
+        const existingUrl = await Url.findOne({ originalUrl: url, isCustom: { $ne: true } });
 
         if (existingUrl) {
             return res.json({
                 shortUrl: `${baseUrl()}/${existingUrl.shortCode}`,
-                shortCode: existingUrl.shortCode
+                shortCode: existingUrl.shortCode,
+                isCustom: false
             });
         }
 
         // Allocate an id and store the link. A duplicate-key error means the
-        // counter had drifted behind the data; retrying advances past the
-        // collision instead of surfacing a 500.
+        // counter had drifted behind the data, or the generated code collided
+        // with a reserved custom name; retrying advances past the collision
+        // instead of surfacing a 500.
         let saved = null;
         let lastError = null;
 
@@ -73,25 +129,41 @@ router.post('/shorten', shortenLimiter, async (req, res, next) => {
             } catch (err) {
                 if (err.code !== 11000) throw err;
                 lastError = err;
-                console.warn(`⚠️  Duplicate id ${numericId}, retrying (attempt ${attempt + 1})`);
+                console.warn(`⚠️  Duplicate code ${shortCode}, retrying (attempt ${attempt + 1})`);
             }
         }
 
         if (!saved) throw lastError;
 
-        // Cache in Redis with TTL. A cache write failure must not fail the
-        // request - the link is already durable in MongoDB.
-        try {
-            await redis.set(`url:${saved.shortCode}`, url, 'EX', TTL);
-        } catch (err) {
-            console.error('⚠️  Cache write failed:', err.message);
-        }
+        await cacheLink(saved.shortCode, url);
 
         res.status(201).json({
             shortUrl: `${baseUrl()}/${saved.shortCode}`,
-            shortCode: saved.shortCode
+            shortCode: saved.shortCode,
+            isCustom: false
         });
 
+    } catch (error) {
+        next(error);
+    }
+});
+
+// GET /api/check/:code - Is this custom name available?
+router.get('/check/:code', async (req, res, next) => {
+    const code = req.params.code;
+    const problem = validateCustomCode(code);
+
+    if (problem) {
+        return res.json({ code, available: false, reason: problem });
+    }
+
+    try {
+        const taken = await Url.findOne({ shortCode: code }).select('_id').lean();
+        res.json({
+            code,
+            available: !taken,
+            reason: taken ? 'Already taken' : null
+        });
     } catch (error) {
         next(error);
     }
@@ -110,6 +182,7 @@ router.get('/stats/:code', async (req, res, next) => {
             originalUrl: urlDoc.originalUrl,
             shortCode: urlDoc.shortCode,
             clicks: urlDoc.clicks,
+            isCustom: urlDoc.isCustom,
             createdAt: urlDoc.createdAt
         });
     } catch (error) {
@@ -129,7 +202,7 @@ router.get('/urls', requireAdmin, async (req, res, next) => {
                 .sort({ createdAt: -1 })
                 .skip((page - 1) * limit)
                 .limit(limit)
-                .select('shortCode originalUrl clicks createdAt')
+                .select('shortCode originalUrl clicks isCustom createdAt')
                 .lean(),
             Url.countDocuments(),
             // Totals span the whole collection, not just this page

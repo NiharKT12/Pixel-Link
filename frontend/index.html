@@ -29,6 +29,15 @@
     <main class="container">
         <label class="visually-hidden" for="urlInput">URL to shorten</label>
         <input type="url" id="urlInput" placeholder="Enter the URL" autocomplete="url" spellcheck="false" />
+
+        <label class="visually-hidden" for="customInput">Custom name (optional)</label>
+        <div class="custom-row">
+            <span class="custom-prefix" aria-hidden="true">pixink.vercel.app/</span>
+            <input type="text" id="customInput" placeholder="optional name"
+                   autocomplete="off" autocapitalize="none" spellcheck="false" maxlength="30" />
+        </div>
+        <div id="availability" class="availability" role="status" aria-live="polite"></div>
+
         <button id="shortenBtn">Shorten</button>
         <div id="errorMsg" class="error-message" role="status" aria-live="polite"></div>
     </main>
@@ -65,6 +74,8 @@
         const shortenedUrl = document.getElementById('shortenedUrl');
         const copyBtn = document.getElementById('copyBtn');
         const copyStatus = document.getElementById('copyStatus');
+        const customInput = document.getElementById('customInput');
+        const availability = document.getElementById('availability');
         const showError = createErrorReporter(document.getElementById('errorMsg'));
 
         // Element focused before the dialog opened, so focus can be handed back
@@ -87,6 +98,7 @@
 
         shortenBtn.addEventListener('click', async () => {
             let url = urlInput.value.trim();
+            const custom = customInput.value.trim();
 
             if (!url) {
                 showError('Please enter a URL');
@@ -103,12 +115,15 @@
                     requestJson('/api/shorten', {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ url })
+                        body: JSON.stringify(custom ? { url, customCode: custom } : { url })
                     })
                 );
 
                 shortenedUrl.value = data.shortUrl;
                 urlInput.value = '';
+                customInput.value = '';
+                availability.textContent = '';
+                availability.className = 'availability';
                 openPopup();
             } catch (error) {
                 showError(error.message);
@@ -116,6 +131,40 @@
         });
 
         submitOnEnter(urlInput, shortenBtn);
+        submitOnEnter(customInput, shortenBtn);
+
+        // Live availability check, debounced so typing does not spam the API
+        let availabilityTimer = null;
+        let availabilitySeq = 0;
+
+        customInput.addEventListener('input', () => {
+            const value = customInput.value.trim();
+            clearTimeout(availabilityTimer);
+
+            if (!value) {
+                availability.textContent = '';
+                availability.className = 'availability';
+                return;
+            }
+
+            availability.textContent = 'checking...';
+            availability.className = 'availability checking';
+
+            availabilityTimer = setTimeout(async () => {
+                // Ignore a reply that arrives after a newer keystroke
+                const seq = ++availabilitySeq;
+                try {
+                    const data = await requestJson('/api/check/' + encodeURIComponent(value));
+                    if (seq !== availabilitySeq) return;
+                    availability.textContent = data.available ? '✓ available' : '✗ ' + data.reason;
+                    availability.className = 'availability ' + (data.available ? 'free' : 'taken');
+                } catch (_) {
+                    if (seq !== availabilitySeq) return;
+                    availability.textContent = '';
+                    availability.className = 'availability';
+                }
+            }, 400);
+        });
 
         closeBtn.addEventListener('click', closePopup);
 

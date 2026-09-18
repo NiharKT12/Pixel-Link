@@ -1,7 +1,7 @@
 {
   "rewrites": [
     {
-      "source": "/:code(\\d+|[a-zA-Z0-9]+)",
+      "source": "/:code([a-zA-Z0-9_-]+)",
       "destination": "https://pixel-link-2xiq.onrender.com/:code"
     }
   ]

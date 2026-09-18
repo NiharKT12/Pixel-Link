@@ -92,7 +92,7 @@
                 code = code.split('/').filter(Boolean).pop() || '';
             }
 
-            if (!/^[0-9a-zA-Z]{1,12}$/.test(code)) {
+            if (!/^[0-9a-zA-Z_-]{1,30}$/.test(code)) {
                 showError('That does not look like a short code');
                 return;
             }

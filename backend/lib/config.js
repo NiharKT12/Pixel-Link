@@ -6,10 +6,13 @@ function cacheTtl() {
     return Number.isFinite(parsed) && parsed > 0 ? parsed : 3600;
 }
 
-// Public origin that short links are built from - differs per environment,
-// so it must never be hardcoded in a route.
+// Public origin that short links are built from. Defaults to production so a
+// deploy that forgets to set BASE_URL still hands out working links instead of
+// localhost; local development overrides it in .env.
+const DEFAULT_BASE_URL = 'https://pixink.vercel.app';
+
 function baseUrl() {
-    return (process.env.BASE_URL || `http://localhost:${port()}`).replace(/\/$/, '');
+    return (process.env.BASE_URL || DEFAULT_BASE_URL).replace(/\/$/, '');
 }
 
 // Browser origin allowed to call the API. Unset means "allow any", which is
@@ -26,4 +29,4 @@ function port() {
     return parseInt(process.env.PORT, 10) || 5000;
 }
 
-module.exports = { cacheTtl, baseUrl, corsOrigin, adminKey, port };
+module.exports = { cacheTtl, baseUrl, corsOrigin, adminKey, port, DEFAULT_BASE_URL };

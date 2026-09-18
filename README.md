@@ -12,6 +12,7 @@ A retro pixel-art themed URL shortener with analytics dashboard.
 ## ✨ Features
 
 - 🔗 **URL Shortening** - Convert long URLs into short, shareable links
+- ✏️ **Custom Names** - Claim your own alias (`/summer-sale`) with live availability checking
 - 📊 **Analytics Dashboard** - Track click counts for your shortened URLs
 - ⚡ **Redis Caching** - Fast redirects with 1-hour TTL caching
 - 🛡️ **Rate Limited** - Per-IP limits keep the API from being flooded
@@ -50,6 +51,12 @@ User Request → Vercel (Frontend) → Render (Backend API)
    link space cannot be enumerated by incrementing a code
 3. The result is encoded to Base62 (`0-9`, `a-z`, `A-Z`), producing codes like `qdzLz`
 
+**Custom Names:**
+Pass `customCode` to claim a specific alias instead of a generated one. Names are
+3-30 characters of `a-z`, `A-Z`, `0-9`, `-` and `_`, are case-sensitive, and cannot
+take a reserved path such as `api` or `health`. If a generated code ever collides
+with a claimed name, the insert retries with the next id so neither can clobber the other.
+
 **Resilience:**
 - Redis is optional. If `REDIS_URL` is unset, or the instance is deleted or
   unreachable, redirects and shortening keep working from MongoDB alone
@@ -62,7 +69,8 @@ User Request → Vercel (Frontend) → Render (Backend API)
 | Method | Endpoint | Auth | Description |
 |--------|----------|------|-------------|
 | GET | `/health` | – | Liveness/readiness of MongoDB and Redis |
-| POST | `/api/shorten` | – | Create a short URL (30 per 15 min per IP) |
+| POST | `/api/shorten` | – | Create a short URL, optionally with a custom name (30 per 15 min per IP) |
+| GET | `/api/check/:code` | – | Is a custom name available? |
 | GET | `/:code` | – | Redirect to original URL |
 | GET | `/api/stats/:code` | – | Get URL statistics |
 | GET | `/api/urls` | `x-admin-key` | Paginated list of all URLs |
@@ -80,9 +88,20 @@ Response:
 ```json
 {
   "shortUrl": "https://pixink.vercel.app/qdzLz",
-  "shortCode": "qdzLz"
+  "shortCode": "qdzLz",
+  "isCustom": false
 }
 ```
+
+### Example: Shorten with a custom name
+
+```bash
+curl -X POST https://pixel-link-2xiq.onrender.com/api/shorten \
+  -H "Content-Type: application/json" \
+  -d '{"url": "https://example.com/promo", "customCode": "summer-sale"}'
+```
+
+Returns `409` if the name is taken, `400` if it is invalid or reserved.
 
 ### Example: List all URLs (admin)
 
@@ -126,7 +145,7 @@ curl https://pixel-link-2xiq.onrender.com/api/urls?page=1&limit=20 \
    | `REDIS_URL` | no | Redis connection string. Unset = run without a cache (MongoDB only) |
    | `PORT` | no | API port (default `5000`) |
    | `CACHE_TTL` | no | Redirect cache lifetime in seconds (default `3600`) |
-   | `BASE_URL` | no | Public origin short links are built from (default `http://localhost:$PORT`) |
+   | `BASE_URL` | no | Public origin short links are built from (default `https://pixink.vercel.app`) |
    | `FRONTEND_URL` | no | Origin allowed by CORS; unset allows any origin (dev only) |
    | `ADMIN_KEY` | no | Shared secret for `GET /api/urls`; unset keeps it closed |
 

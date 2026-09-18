@@ -9,6 +9,19 @@ const MODULUS = 62n ** BigInt(CODE_LENGTH);
 // produce distinct codes, so scrambling never introduces collisions.
 const MULTIPLIER = 387420489n;
 
+// Custom aliases may also use - and _ and run longer than a generated code
+const CUSTOM_MIN = 3;
+const CUSTOM_MAX = 30;
+
+// Paths the server itself owns, or that would be shadowed by a route or a
+// static file. A custom alias matching one of these could never be reached.
+const RESERVED_CODES = new Set([
+    'api', 'health', 'admin', 'dashboard', 'index', 'app', 'static', 'assets',
+    'public', 'favicon', 'robots', 'sitemap', 'www', 'login', 'logout',
+    'signup', 'register', 'settings', 'about', 'privacy', 'terms', 'null',
+    'undefined'
+]);
+
 // Convert a non-negative integer to Base62
 function toBase62(num) {
     let n = BigInt(num);
@@ -34,11 +47,40 @@ function encodeId(numericId) {
     return toBase62((id * MULTIPLIER) % MODULUS).padStart(CODE_LENGTH, CHARSET[0]);
 }
 
-// Cheap shape check so junk paths (/favicon.ico, scanner noise) never reach the database
-const CODE_PATTERN = /^[0-9a-zA-Z]{1,12}$/;
+// Cheap shape check so junk paths (/favicon.ico, scanner noise) never reach the
+// database. Wide enough to cover custom aliases as well as generated codes.
+const CODE_PATTERN = new RegExp(`^[0-9a-zA-Z_-]{1,${CUSTOM_MAX}}$`);
 
 function isValidCode(code) {
     return CODE_PATTERN.test(code);
 }
 
-module.exports = { toBase62, encodeId, isValidCode, CHARSET };
+// Validate a user-supplied alias. Returns an error string, or null when valid.
+function validateCustomCode(code) {
+    if (typeof code !== 'string') return 'Custom name must be text';
+
+    if (code.length < CUSTOM_MIN || code.length > CUSTOM_MAX) {
+        return `Custom name must be ${CUSTOM_MIN}-${CUSTOM_MAX} characters`;
+    }
+
+    if (!/^[a-zA-Z0-9_-]+$/.test(code)) {
+        return 'Custom name can only use letters, numbers, hyphens and underscores';
+    }
+
+    if (RESERVED_CODES.has(code.toLowerCase())) {
+        return 'That name is reserved, please pick another';
+    }
+
+    return null;
+}
+
+module.exports = {
+    toBase62,
+    encodeId,
+    isValidCode,
+    validateCustomCode,
+    CHARSET,
+    CUSTOM_MIN,
+    CUSTOM_MAX,
+    RESERVED_CODES
+};
