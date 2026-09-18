@@ -19,7 +19,10 @@ const RESERVED_CODES = new Set([
     'api', 'health', 'admin', 'dashboard', 'index', 'app', 'static', 'assets',
     'public', 'favicon', 'robots', 'sitemap', 'www', 'login', 'logout',
     'signup', 'register', 'settings', 'about', 'privacy', 'terms', 'null',
-    'undefined'
+    'undefined',
+    // Reserved ahead of the accounts work, so nobody can claim a name that a
+    // future page or endpoint will need
+    'auth', 'account', 'me', 'user', 'users', 'session', 'signin', 'signout'
 ]);
 
 // Convert a non-negative integer to Base62

@@ -1,0 +1,331 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PixelLink - Admin</title>
+    <meta name="description" content="Administrative view of every Pixel Link short link.">
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><rect width='16' height='16' fill='%231a1a2e'/><rect x='3' y='6' width='4' height='4' fill='%23ff6b9d'/><rect x='9' y='6' width='4' height='4' fill='%2354d7ff'/></svg>">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="style.css">
+    <link rel="stylesheet" href="auth.css">
+</head>
+<body class="page-list">
+    <div class="pixel-corner top-left" aria-hidden="true"></div>
+    <div class="pixel-corner top-right" aria-hidden="true"></div>
+    <div class="pixel-corner bottom-left" aria-hidden="true"></div>
+    <div class="pixel-corner bottom-right" aria-hidden="true"></div>
+
+    <nav class="session-nav" id="sessionNav" aria-label="Account" data-back="index.html"></nav>
+
+    <h1 class="title">Admin</h1>
+
+    <main class="links-page">
+        <div class="stat-row" id="statRow" hidden>
+            <div class="stat"><span class="stat-value" id="statLinks">0</span><span class="stat-label">links</span></div>
+            <div class="stat"><span class="stat-value" id="statClicks">0</span><span class="stat-label">clicks</span></div>
+            <div class="stat"><span class="stat-value" id="statUsers">0</span><span class="stat-label">users</span></div>
+            <div class="stat"><span class="stat-value" id="statUnclaimed">0</span><span class="stat-label">unclaimed</span></div>
+        </div>
+
+        <div class="admin-controls">
+            <label class="visually-hidden" for="searchInput">Search links</label>
+            <input type="search" id="searchInput" placeholder="search code or url" autocomplete="off" spellcheck="false" />
+
+            <label class="visually-hidden" for="scopeSelect">Filter</label>
+            <select id="scopeSelect">
+                <option value="">all links</option>
+                <option value="unclaimed">unclaimed</option>
+                <option value="owned">owned</option>
+                <option value="custom">custom names</option>
+                <option value="expiring">expiring</option>
+            </select>
+        </div>
+
+        <div id="errorMsg" class="error-message" role="status" aria-live="polite"></div>
+
+        <div id="loading" class="links-note">Loading...</div>
+        <div id="empty" class="links-note" hidden>No links match this filter.</div>
+
+        <ul class="link-list" id="linkList"></ul>
+
+        <div class="pager" id="pager" hidden>
+            <button type="button" id="prevBtn" class="pager-btn">&larr; Prev</button>
+            <span id="pageLabel" class="pager-label"></span>
+            <button type="button" id="nextBtn" class="pager-btn">Next &rarr;</button>
+        </div>
+
+        <!-- Bulk delete lives behind its own disclosure: it is the only
+             irreversible action here and should not sit next to ordinary controls -->
+        <details class="danger-zone">
+            <summary>Danger zone</summary>
+            <div class="danger-body">
+                <p class="danger-note" id="dangerStatus">Checking whether bulk delete is enabled...</p>
+
+                <label class="visually-hidden" for="bulkScope">Bulk delete scope</label>
+                <select id="bulkScope">
+                    <option value="unclaimed">all unclaimed links (no account)</option>
+                    <option value="expired">all already-expired links</option>
+                    <option value="all">EVERY link</option>
+                </select>
+
+                <button type="button" id="previewBtn" class="row-btn">Preview</button>
+
+                <div id="bulkConfirm" hidden>
+                    <p class="danger-note" id="bulkSummary"></p>
+                    <label class="visually-hidden" for="bulkPassword">Your password</label>
+                    <input type="password" id="bulkPassword" placeholder="your password" autocomplete="current-password" />
+                    <button type="button" id="bulkRunBtn" class="row-btn row-btn-danger">Delete permanently</button>
+                </div>
+            </div>
+        </details>
+    </main>
+
+    <script src="app.js"></script>
+    <script>
+        warmBackend();
+
+        const linkList = document.getElementById('linkList');
+        const loading = document.getElementById('loading');
+        const empty = document.getElementById('empty');
+        const statRow = document.getElementById('statRow');
+        const searchInput = document.getElementById('searchInput');
+        const scopeSelect = document.getElementById('scopeSelect');
+        const pager = document.getElementById('pager');
+        const prevBtn = document.getElementById('prevBtn');
+        const nextBtn = document.getElementById('nextBtn');
+        const pageLabel = document.getElementById('pageLabel');
+        const showError = createErrorReporter(document.getElementById('errorMsg'), 6000);
+
+        const bulkScope = document.getElementById('bulkScope');
+        const previewBtn = document.getElementById('previewBtn');
+        const bulkConfirm = document.getElementById('bulkConfirm');
+        const bulkSummary = document.getElementById('bulkSummary');
+        const bulkPassword = document.getElementById('bulkPassword');
+        const bulkRunBtn = document.getElementById('bulkRunBtn');
+        const dangerStatus = document.getElementById('dangerStatus');
+
+        let page = 1;
+        let totalPages = 1;
+        let pendingConfirm = null;
+
+        function formatDate(value) {
+            const d = new Date(value);
+            return Number.isNaN(d.getTime()) ? '-' : d.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
+        }
+
+        function buildRow(link, baseUrl) {
+            const li = document.createElement('li');
+            li.className = 'link-row';
+
+            const main = document.createElement('div');
+            main.className = 'link-main';
+
+            const short = document.createElement('a');
+            short.className = 'link-short';
+            short.href = baseUrl + '/' + link.shortCode;
+            short.target = '_blank';
+            short.rel = 'noopener noreferrer';
+            short.textContent = '/' + link.shortCode;
+            main.appendChild(short);
+
+            const original = document.createElement('span');
+            original.className = 'link-original';
+            // textContent: these values come from the public internet
+            original.textContent = link.originalUrl;
+            original.title = link.originalUrl;
+            main.appendChild(original);
+
+            const meta = document.createElement('div');
+            meta.className = 'link-meta';
+
+            const clicks = document.createElement('span');
+            clicks.className = 'link-clicks';
+            clicks.textContent = link.clicks + ' clicks';
+            meta.appendChild(clicks);
+
+            const owner = document.createElement('span');
+            owner.textContent = link.ownerEmail || 'unclaimed';
+            if (!link.ownerEmail) owner.className = 'link-unclaimed';
+            meta.appendChild(owner);
+
+            const created = document.createElement('span');
+            created.textContent = formatDate(link.createdAt);
+            meta.appendChild(created);
+
+            if (link.isCustom) {
+                const tag = document.createElement('span');
+                tag.className = 'link-tag';
+                tag.textContent = 'custom';
+                meta.appendChild(tag);
+            }
+
+            main.appendChild(meta);
+            li.appendChild(main);
+
+            const actions = document.createElement('div');
+            actions.className = 'link-actions';
+
+            const delBtn = document.createElement('button');
+            delBtn.type = 'button';
+            delBtn.className = 'row-btn row-btn-danger';
+            delBtn.textContent = 'Delete';
+            delBtn.addEventListener('click', async () => {
+                if (delBtn.dataset.confirm !== 'yes') {
+                    delBtn.dataset.confirm = 'yes';
+                    delBtn.textContent = 'Sure?';
+                    setTimeout(() => {
+                        if (delBtn.dataset.confirm === 'yes') {
+                            delBtn.dataset.confirm = '';
+                            delBtn.textContent = 'Delete';
+                        }
+                    }, 4000);
+                    return;
+                }
+                try {
+                    await withBusyButton(delBtn, '...', () =>
+                        requestJson('/api/admin/urls/' + encodeURIComponent(link.shortCode), { method: 'DELETE' })
+                    );
+                    await load();
+                } catch (error) {
+                    showError(error.message);
+                    delBtn.dataset.confirm = '';
+                    delBtn.textContent = 'Delete';
+                }
+            });
+            actions.appendChild(delBtn);
+
+            li.appendChild(actions);
+            return li;
+        }
+
+        async function loadStats() {
+            try {
+                const s = await requestJson('/api/admin/stats');
+                document.getElementById('statLinks').textContent = s.totalLinks;
+                document.getElementById('statClicks').textContent = s.totalClicks;
+                document.getElementById('statUsers').textContent = s.totalUsers;
+                document.getElementById('statUnclaimed').textContent = s.unclaimed;
+                statRow.hidden = false;
+            } catch (_) {
+                // The listing below is the important part; stats are a bonus
+            }
+        }
+
+        async function load() {
+            loading.hidden = false;
+            empty.hidden = true;
+
+            const params = new URLSearchParams({ page: String(page), limit: '20' });
+            if (scopeSelect.value) params.set('scope', scopeSelect.value);
+            if (searchInput.value.trim()) params.set('q', searchInput.value.trim());
+
+            try {
+                const data = await requestJson('/api/admin/urls?' + params.toString());
+
+                linkList.textContent = '';
+                data.urls.forEach((l) => linkList.appendChild(buildRow(l, data.baseUrl)));
+
+                totalPages = data.totalPages;
+                pageLabel.textContent = 'Page ' + data.page + ' of ' + totalPages;
+                pager.hidden = totalPages <= 1;
+                prevBtn.disabled = data.page <= 1;
+                nextBtn.disabled = data.page >= totalPages;
+                empty.hidden = data.totalLinks > 0;
+            } catch (error) {
+                if (error.status === 401) { location.href = 'login.html?next=admin'; return; }
+                if (error.status === 403) { showError('This account is not an admin'); return; }
+                showError(error.message);
+            } finally {
+                loading.hidden = true;
+            }
+        }
+
+        let searchTimer = null;
+        searchInput.addEventListener('input', () => {
+            clearTimeout(searchTimer);
+            searchTimer = setTimeout(() => { page = 1; load(); }, 350);
+        });
+        scopeSelect.addEventListener('change', () => { page = 1; load(); });
+        prevBtn.addEventListener('click', () => { if (page > 1) { page--; load(); } });
+        nextBtn.addEventListener('click', () => { if (page < totalPages) { page++; load(); } });
+
+        // ---- bulk delete ----
+        previewBtn.addEventListener('click', async () => {
+            bulkConfirm.hidden = true;
+            pendingConfirm = null;
+
+            try {
+                const p = await withBusyButton(previewBtn, '...', () =>
+                    requestJson('/api/admin/bulk-preview?scope=' + encodeURIComponent(bulkScope.value))
+                );
+
+                if (!p.enabled) {
+                    dangerStatus.textContent = 'Bulk delete is disabled on the server. Set ALLOW_DELETE_ALL=true to enable it.';
+                    return;
+                }
+                if (p.count === 0) {
+                    dangerStatus.textContent = 'Nothing matches that scope.';
+                    return;
+                }
+
+                pendingConfirm = p.confirm;
+                bulkSummary.textContent =
+                    'This permanently deletes ' + p.count + ' link' + (p.count === 1 ? '' : 's') +
+                    ', up to ' + p.batchLimit + ' per run. There is no undo.';
+                bulkConfirm.hidden = false;
+                bulkPassword.value = '';
+                bulkPassword.focus();
+            } catch (error) {
+                showError(error.message);
+            }
+        });
+
+        bulkRunBtn.addEventListener('click', async () => {
+            if (!pendingConfirm) return;
+            if (!bulkPassword.value) return showError('Enter your password to confirm');
+
+            try {
+                const result = await withBusyButton(bulkRunBtn, 'Deleting...', () =>
+                    requestJson('/api/admin/bulk-delete', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            scope: bulkScope.value,
+                            confirm: pendingConfirm,
+                            password: bulkPassword.value
+                        })
+                    })
+                );
+
+                bulkPassword.value = '';
+                bulkConfirm.hidden = true;
+                pendingConfirm = null;
+                dangerStatus.textContent =
+                    'Deleted ' + result.deleted + '. ' +
+                    (result.remaining > 0 ? result.remaining + ' still match - preview again to continue.' : 'None remaining.');
+
+                await loadStats();
+                await load();
+            } catch (error) {
+                showError(error.message);
+                bulkPassword.value = '';
+            }
+        });
+
+        renderSessionNav(document.getElementById('sessionNav')).then((user) => {
+            if (!user) { location.href = 'login.html?next=admin'; return; }
+            if (user.role !== 'admin') {
+                loading.hidden = true;
+                showError('This account is not an admin');
+                return;
+            }
+            dangerStatus.textContent = 'Bulk delete is permanent and cannot be undone. Preview first.';
+            loadStats();
+            load();
+        });
+    </script>
+</body>
+</html>

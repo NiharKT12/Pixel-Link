@@ -1,6 +1,26 @@
 {
   "rewrites": [
     {
+      "source": "/api/:path*",
+      "destination": "https://pixel-link-2xiq.onrender.com/api/:path*"
+    },
+    {
+      "source": "/login",
+      "destination": "/login.html"
+    },
+    {
+      "source": "/account",
+      "destination": "/account.html"
+    },
+    {
+      "source": "/admin",
+      "destination": "/admin.html"
+    },
+    {
+      "source": "/dashboard",
+      "destination": "/dashboard.html"
+    },
+    {
       "source": "/:code([a-zA-Z0-9_-]+)",
       "destination": "https://pixel-link-2xiq.onrender.com/:code"
     }

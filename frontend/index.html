@@ -10,6 +10,7 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="style.css">
+    <link rel="stylesheet" href="auth.css">
 </head>
 <body>
     <!-- Pixel decorations -->
@@ -21,6 +22,8 @@
     <div class="pixel-dots" aria-hidden="true">
         <span></span><span></span><span></span><span></span><span></span>
     </div>
+
+    <nav class="session-nav" id="sessionNav" aria-label="Account"></nav>
 
     <h1 class="title">PixelLink</h1>
 
@@ -62,11 +65,15 @@
                 </button>
             </div>
             <div id="copyStatus" class="copy-status" role="status" aria-live="polite"></div>
+            <p id="expiryNote" class="expiry-note" hidden></p>
         </div>
     </div>
 
     <script src="app.js"></script>
     <script>
+        warmBackend();
+        renderSessionNav(document.getElementById('sessionNav'));
+
         const urlInput = document.getElementById('urlInput');
         const shortenBtn = document.getElementById('shortenBtn');
         const popup = document.getElementById('popup');
@@ -74,6 +81,7 @@
         const shortenedUrl = document.getElementById('shortenedUrl');
         const copyBtn = document.getElementById('copyBtn');
         const copyStatus = document.getElementById('copyStatus');
+        const expiryNote = document.getElementById('expiryNote');
         const customInput = document.getElementById('customInput');
         const availability = document.getElementById('availability');
         const showError = createErrorReporter(document.getElementById('errorMsg'));
@@ -94,6 +102,22 @@
             popup.hidden = true;
             copyStatus.textContent = '';
             if (lastFocused) lastFocused.focus();
+        }
+
+        // Guest links carry an expiry; signed-in links do not. Saying so at the
+        // moment of creation is the clearest possible nudge to sign in.
+        function showExpiry(expiresAt) {
+            if (!expiresAt) {
+                expiryNote.hidden = true;
+                expiryNote.textContent = '';
+                return;
+            }
+
+            const ms = new Date(expiresAt).getTime() - Date.now();
+            const days = Math.max(1, Math.round(ms / 86400000));
+            expiryNote.textContent =
+                'Expires in ' + days + (days === 1 ? ' day' : ' days') + ' - sign in to keep it.';
+            expiryNote.hidden = false;
         }
 
         shortenBtn.addEventListener('click', async () => {
@@ -120,6 +144,7 @@
                 );
 
                 shortenedUrl.value = data.shortUrl;
+                showExpiry(data.expiresAt);
                 urlInput.value = '';
                 customInput.value = '';
                 availability.textContent = '';

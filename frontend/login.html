@@ -1,0 +1,130 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PixelLink - Sign In</title>
+    <meta name="description" content="Sign in to keep your Pixel Link short links and see their analytics.">
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><rect width='16' height='16' fill='%231a1a2e'/><rect x='3' y='6' width='4' height='4' fill='%23ff6b9d'/><rect x='9' y='6' width='4' height='4' fill='%2354d7ff'/></svg>">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="style.css">
+    <link rel="stylesheet" href="auth.css">
+</head>
+<body>
+    <div class="pixel-corner top-left" aria-hidden="true"></div>
+    <div class="pixel-corner top-right" aria-hidden="true"></div>
+    <div class="pixel-corner bottom-left" aria-hidden="true"></div>
+    <div class="pixel-corner bottom-right" aria-hidden="true"></div>
+
+    <div class="pixel-dots" aria-hidden="true">
+        <span></span><span></span><span></span><span></span><span></span>
+    </div>
+
+    <h1 class="title" id="pageTitle">Sign In</h1>
+
+    <a href="index.html" class="back-link">&larr; Back</a>
+
+    <main class="container">
+        <form class="auth-form" id="authForm" novalidate>
+            <label class="visually-hidden" for="emailInput">Email</label>
+            <input type="email" id="emailInput" placeholder="email" autocomplete="email"
+                   autocapitalize="none" spellcheck="false" required />
+
+            <label class="visually-hidden" for="passwordInput">Password</label>
+            <input type="password" id="passwordInput" placeholder="password"
+                   autocomplete="current-password" minlength="8" required />
+
+            <button type="submit" id="submitBtn">Sign In</button>
+        </form>
+
+        <div id="errorMsg" class="error-message" role="status" aria-live="polite"></div>
+
+        <p class="auth-switch">
+            <span id="switchPrompt">No account yet?</span>
+            <button type="button" id="switchBtn" class="link-button">Create one</button>
+        </p>
+
+        <p class="auth-note">
+            Links made while signed out are deleted after a week. Signing in keeps them.
+        </p>
+    </main>
+
+    <div class="pixel-dots bottom" aria-hidden="true">
+        <span></span><span></span><span></span><span></span><span></span>
+    </div>
+
+    <script src="app.js"></script>
+    <script>
+        warmBackend();
+
+        const authForm = document.getElementById('authForm');
+        const emailInput = document.getElementById('emailInput');
+        const passwordInput = document.getElementById('passwordInput');
+        const submitBtn = document.getElementById('submitBtn');
+        const switchBtn = document.getElementById('switchBtn');
+        const switchPrompt = document.getElementById('switchPrompt');
+        const pageTitle = document.getElementById('pageTitle');
+        const showError = createErrorReporter(document.getElementById('errorMsg'), 5000);
+
+        // Where to land after signing in, so a 401 redirect can send the user back
+        const params = new URLSearchParams(location.search);
+        const nextPage = params.get('next') === 'admin' ? 'admin.html' : 'account.html';
+
+        let mode = params.get('mode') === 'register' ? 'register' : 'login';
+
+        function applyMode() {
+            const registering = mode === 'register';
+            pageTitle.textContent = registering ? 'Register' : 'Sign In';
+            document.title = registering ? 'PixelLink - Register' : 'PixelLink - Sign In';
+            submitBtn.textContent = registering ? 'Create Account' : 'Sign In';
+            switchPrompt.textContent = registering ? 'Already have an account?' : 'No account yet?';
+            switchBtn.textContent = registering ? 'Sign in' : 'Create one';
+            passwordInput.autocomplete = registering ? 'new-password' : 'current-password';
+        }
+
+        switchBtn.addEventListener('click', () => {
+            mode = mode === 'register' ? 'login' : 'register';
+            applyMode();
+            emailInput.focus();
+        });
+
+        authForm.addEventListener('submit', async (e) => {
+            e.preventDefault();
+
+            const email = emailInput.value.trim();
+            const password = passwordInput.value;
+
+            if (!email) return showError('Please enter your email');
+            if (!password) return showError('Please enter your password');
+            if (mode === 'register' && password.length < 8) {
+                return showError('Password must be at least 8 characters');
+            }
+
+            try {
+                await withBusyButton(submitBtn, 'Please wait...', () =>
+                    requestJson('/api/auth/' + mode, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ email, password })
+                    })
+                );
+
+                location.href = nextPage;
+            } catch (error) {
+                showError(error.message);
+                passwordInput.value = '';
+                passwordInput.focus();
+            }
+        });
+
+        applyMode();
+
+        // Already signed in? Skip the form.
+        currentUser().then((user) => {
+            if (user) location.href = nextPage;
+        });
+    </script>
+</body>
+</html>

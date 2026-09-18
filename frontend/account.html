@@ -1,0 +1,242 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PixelLink - My Links</title>
+    <meta name="description" content="Your Pixel Link short links, their click counts, and controls to delete them.">
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><rect width='16' height='16' fill='%231a1a2e'/><rect x='3' y='6' width='4' height='4' fill='%23ff6b9d'/><rect x='9' y='6' width='4' height='4' fill='%2354d7ff'/></svg>">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="style.css">
+    <link rel="stylesheet" href="auth.css">
+</head>
+<body class="page-list">
+    <div class="pixel-corner top-left" aria-hidden="true"></div>
+    <div class="pixel-corner top-right" aria-hidden="true"></div>
+    <div class="pixel-corner bottom-left" aria-hidden="true"></div>
+    <div class="pixel-corner bottom-right" aria-hidden="true"></div>
+
+    <nav class="session-nav" id="sessionNav" aria-label="Account" data-back="index.html"></nav>
+
+    <h1 class="title">My Links</h1>
+
+    <main class="links-page">
+        <div class="stat-row" id="statRow" hidden>
+            <div class="stat">
+                <span class="stat-value" id="statLinks">0</span>
+                <span class="stat-label">links</span>
+            </div>
+            <div class="stat">
+                <span class="stat-value" id="statClicks">0</span>
+                <span class="stat-label">clicks</span>
+            </div>
+        </div>
+
+        <div id="errorMsg" class="error-message" role="status" aria-live="polite"></div>
+
+        <div id="loading" class="links-note">Loading your links...</div>
+
+        <div id="empty" class="links-note" hidden>
+            No links yet. <a href="index.html" class="link-inline">Shorten one</a> while signed in and it will appear here.
+        </div>
+
+        <ul class="link-list" id="linkList"></ul>
+
+        <div class="pager" id="pager" hidden>
+            <button type="button" id="prevBtn" class="pager-btn">&larr; Prev</button>
+            <span id="pageLabel" class="pager-label"></span>
+            <button type="button" id="nextBtn" class="pager-btn">Next &rarr;</button>
+        </div>
+    </main>
+
+    <script src="app.js"></script>
+    <script>
+        warmBackend();
+
+        const linkList = document.getElementById('linkList');
+        const loading = document.getElementById('loading');
+        const empty = document.getElementById('empty');
+        const statRow = document.getElementById('statRow');
+        const statLinks = document.getElementById('statLinks');
+        const statClicks = document.getElementById('statClicks');
+        const pager = document.getElementById('pager');
+        const prevBtn = document.getElementById('prevBtn');
+        const nextBtn = document.getElementById('nextBtn');
+        const pageLabel = document.getElementById('pageLabel');
+        const showError = createErrorReporter(document.getElementById('errorMsg'), 5000);
+
+        let page = 1;
+        let totalPages = 1;
+
+        function formatDate(value) {
+            const date = new Date(value);
+            if (Number.isNaN(date.getTime())) return '-';
+            return date.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
+        }
+
+        // "in 6 days" / "in 4 hours" / "expired"
+        function formatExpiry(value) {
+            if (!value) return null;
+            const ms = new Date(value).getTime() - Date.now();
+            if (Number.isNaN(ms)) return null;
+            if (ms <= 0) return 'expired';
+            const days = Math.floor(ms / 86400000);
+            if (days >= 1) return 'expires in ' + days + (days === 1 ? ' day' : ' days');
+            const hours = Math.max(1, Math.floor(ms / 3600000));
+            return 'expires in ' + hours + (hours === 1 ? ' hour' : ' hours');
+        }
+
+        function buildRow(link, baseUrl) {
+            const li = document.createElement('li');
+            li.className = 'link-row';
+
+            const main = document.createElement('div');
+            main.className = 'link-main';
+
+            const short = document.createElement('a');
+            short.className = 'link-short';
+            short.href = baseUrl + '/' + link.shortCode;
+            short.target = '_blank';
+            short.rel = 'noopener noreferrer';
+            // textContent throughout: link data is user-supplied and must never
+            // be parsed as markup
+            short.textContent = '/' + link.shortCode;
+            main.appendChild(short);
+
+            const original = document.createElement('span');
+            original.className = 'link-original';
+            original.textContent = link.originalUrl;
+            original.title = link.originalUrl;
+            main.appendChild(original);
+
+            const meta = document.createElement('div');
+            meta.className = 'link-meta';
+
+            const clicks = document.createElement('span');
+            clicks.className = 'link-clicks';
+            clicks.textContent = link.clicks + (link.clicks === 1 ? ' click' : ' clicks');
+            meta.appendChild(clicks);
+
+            const created = document.createElement('span');
+            created.textContent = formatDate(link.createdAt);
+            meta.appendChild(created);
+
+            if (link.isCustom) {
+                const custom = document.createElement('span');
+                custom.className = 'link-tag';
+                custom.textContent = 'custom';
+                meta.appendChild(custom);
+            }
+
+            const expiry = formatExpiry(link.expiresAt);
+            if (expiry) {
+                const exp = document.createElement('span');
+                exp.className = 'link-expiry';
+                exp.textContent = expiry;
+                meta.appendChild(exp);
+            }
+
+            main.appendChild(meta);
+            li.appendChild(main);
+
+            const actions = document.createElement('div');
+            actions.className = 'link-actions';
+
+            const copyBtn = document.createElement('button');
+            copyBtn.type = 'button';
+            copyBtn.className = 'row-btn';
+            copyBtn.textContent = 'Copy';
+            copyBtn.addEventListener('click', async () => {
+                try {
+                    await copyText(short.href);
+                    copyBtn.textContent = 'Copied!';
+                    setTimeout(() => { copyBtn.textContent = 'Copy'; }, 1500);
+                } catch (error) {
+                    showError(error.message);
+                }
+            });
+            actions.appendChild(copyBtn);
+
+            const delBtn = document.createElement('button');
+            delBtn.type = 'button';
+            delBtn.className = 'row-btn row-btn-danger';
+            delBtn.textContent = 'Delete';
+            delBtn.addEventListener('click', async () => {
+                // Deleting is irreversible and breaks a link that may already be
+                // shared, so the button asks once before doing it
+                if (delBtn.dataset.confirm !== 'yes') {
+                    delBtn.dataset.confirm = 'yes';
+                    delBtn.textContent = 'Sure?';
+                    setTimeout(() => {
+                        if (delBtn.dataset.confirm === 'yes') {
+                            delBtn.dataset.confirm = '';
+                            delBtn.textContent = 'Delete';
+                        }
+                    }, 4000);
+                    return;
+                }
+
+                try {
+                    await withBusyButton(delBtn, '...', () =>
+                        requestJson('/api/me/urls/' + encodeURIComponent(link.shortCode), { method: 'DELETE' })
+                    );
+                    await load();
+                } catch (error) {
+                    showError(error.message);
+                    delBtn.dataset.confirm = '';
+                    delBtn.textContent = 'Delete';
+                }
+            });
+            actions.appendChild(delBtn);
+
+            li.appendChild(actions);
+            return li;
+        }
+
+        async function load() {
+            loading.hidden = false;
+            empty.hidden = true;
+
+            try {
+                const data = await requestJson('/api/me/urls?page=' + page + '&limit=20');
+
+                linkList.textContent = '';
+                data.urls.forEach((link) => linkList.appendChild(buildRow(link, data.baseUrl)));
+
+                statLinks.textContent = data.totalLinks;
+                statClicks.textContent = data.totalClicks;
+                statRow.hidden = false;
+
+                totalPages = data.totalPages;
+                pageLabel.textContent = 'Page ' + data.page + ' of ' + totalPages;
+                pager.hidden = totalPages <= 1;
+                prevBtn.disabled = data.page <= 1;
+                nextBtn.disabled = data.page >= totalPages;
+
+                empty.hidden = data.totalLinks > 0;
+            } catch (error) {
+                if (error.status === 401) {
+                    location.href = 'login.html';
+                    return;
+                }
+                showError(error.message);
+            } finally {
+                loading.hidden = true;
+            }
+        }
+
+        prevBtn.addEventListener('click', () => { if (page > 1) { page--; load(); } });
+        nextBtn.addEventListener('click', () => { if (page < totalPages) { page++; load(); } });
+
+        renderSessionNav(document.getElementById('sessionNav')).then((user) => {
+            if (!user) {
+                location.href = 'login.html';
+                return;
+            }
+            load();
+        });
+    </script>
+</body>
+</html>

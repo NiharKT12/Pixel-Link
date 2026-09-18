@@ -13,6 +13,9 @@ A retro pixel-art themed URL shortener with analytics dashboard.
 
 - 🔗 **URL Shortening** - Convert long URLs into short, shareable links
 - ✏️ **Custom Names** - Claim your own alias (`/summer-sale`) with live availability checking
+- 👤 **Accounts** - Sign in to own your links, see their analytics, and delete them
+- 🛡️ **Admin** - Search every link, see who owns it, delete any of them
+- ⏳ **Guest Expiry** - Links made signed-out delete themselves after a week (opt-in)
 - 📊 **Analytics Dashboard** - Track click counts for your shortened URLs
 - ⚡ **Redis Caching** - Fast redirects with 1-hour TTL caching
 - 🛡️ **Rate Limited** - Per-IP limits keep the API from being flooded
@@ -57,6 +60,22 @@ Pass `customCode` to claim a specific alias instead of a generated one. Names ar
 take a reserved path such as `api` or `health`. If a generated code ever collides
 with a claimed name, the insert retries with the next id so neither can clobber the other.
 
+**Accounts and ownership:**
+- Sessions are a signed JWT in an httpOnly, SameSite=Lax cookie, so they survive the
+  free tier spinning down without any server-side session store
+- Passwords use `scrypt` from `node:crypto` - no native build to break on deploy
+- The `role` is always re-read from MongoDB, never trusted from the token, so revoking
+  admin takes effect on the very next request
+- The API is proxied through Vercel (`/api/*` in `vercel.json`) so the cookie is
+  first-party; third-party cookies are already blocked by Safari
+
+**Guest expiry:**
+- Only links with no owner get an `expiresAt`, and a TTL index deletes them when it passes
+- Documents where the field is absent are never touched, so every link created before
+  accounts existed is immortal. **`expiresAt` is never backfilled onto old rows.**
+- Expiry is approximate (the sweep runs ~every 60s), so the redirect also filters on
+  `expiresAt` and the cache clamps its TTL to the link's remaining life
+
 **Resilience:**
 - Redis is optional. If `REDIS_URL` is unset, or the instance is deleted or
   unreachable, redirects and shortening keep working from MongoDB alone
@@ -71,6 +90,18 @@ with a claimed name, the insert retries with the next id so neither can clobber 
 | GET | `/health` | – | Liveness/readiness of MongoDB and Redis |
 | POST | `/api/shorten` | – | Create a short URL, optionally with a custom name (30 per 15 min per IP) |
 | GET | `/api/check/:code` | – | Is a custom name available? |
+| POST | `/api/auth/register` | – | Create an account |
+| POST | `/api/auth/login` | – | Sign in (10 attempts / 15 min) |
+| POST | `/api/auth/logout` | – | Sign out |
+| GET | `/api/auth/me` | session | The signed-in user |
+| GET | `/api/me/urls` | session | Your own links, paginated |
+| DELETE | `/api/me/urls/:code` | session | Delete one of your links |
+| GET | `/api/admin/urls` | admin | Every link, with filters and search |
+| GET | `/api/admin/stats` | admin | Headline counts |
+| DELETE | `/api/admin/urls/:code` | admin | Delete any link |
+| GET | `/api/admin/bulk-preview` | admin | What a bulk delete would destroy |
+| POST | `/api/admin/bulk-delete` | admin | Scoped bulk delete (gated, see below) |
+| GET | `/debug/ip` | – | What the server thinks your IP is |
 | GET | `/:code` | – | Redirect to original URL |
 | GET | `/api/stats/:code` | – | Get URL statistics |
 | GET | `/api/urls` | `x-admin-key` | Paginated list of all URLs |
@@ -147,7 +178,12 @@ curl https://pixel-link-2xiq.onrender.com/api/urls?page=1&limit=20 \
    | `CACHE_TTL` | no | Redirect cache lifetime in seconds (default `3600`) |
    | `BASE_URL` | no | Public origin short links are built from (default `https://pixink.vercel.app`) |
    | `FRONTEND_URL` | no | Origin allowed by CORS; unset allows any origin (dev only) |
-   | `ADMIN_KEY` | no | Shared secret for `GET /api/urls`; unset keeps it closed |
+   | `ADMIN_KEY` | no | Break-glass admin secret (`x-admin-key` header); unset keeps it closed |
+| `JWT_SECRET` | for auth | Signs session cookies. Unset ⇒ `/api/auth/*` returns 503 |
+| `ADMIN_EMAIL` | no | Promotes that registered account to admin at boot |
+| `TRUST_PROXY_HOPS` | no | Proxies in front of the app (default `1`; `2` behind the Vercel API proxy) |
+| `GUEST_LINK_TTL_DAYS` | no | Guest link lifetime in days. `0` (default) disables expiry |
+| `ALLOW_DELETE_ALL` | no | Enables admin bulk delete. Off unless exactly `true` |
 
 4. **Start the backend**
    ```bash
@@ -165,23 +201,36 @@ Pixel-Link/
 ├── frontend/
 │   ├── index.html        # Main shortener page
 │   ├── dashboard.html    # Analytics dashboard
-│   ├── app.js            # Shared frontend helpers
+│   ├── app.js            # Shared frontend helpers + session nav
+│   ├── login.html        # Sign in / register
+│   ├── account.html      # Your links, analytics, delete
+│   ├── admin.html        # All links, search, delete, danger zone
+│   ├── auth.css          # Auth, list and admin styles
 │   ├── style.css         # Main styles
 │   ├── dashboard.css     # Dashboard styles
 │   └── vercel.json       # Vercel routing config
 ├── backend/
 │   ├── server.js         # Express server & redirect handler
 │   ├── routes/
-│   │   └── url.js        # API routes
+│   │   ├── url.js        # Shorten, check, stats
+│   │   ├── auth.js       # Register, login, logout, me
+│   │   ├── me.js         # A user's own links
+│   │   └── admin.js      # Admin listing, delete, bulk delete
 │   ├── models/
 │   │   ├── Url.js        # MongoDB schema
-│   │   └── Counter.js    # Durable id counter (Redis fallback)
+│   │   ├── Counter.js    # Durable id counter (Redis fallback)
+│   │   └── User.js       # Accounts
 │   ├── lib/
 │   │   ├── shortcode.js  # Base62 encoding & code validation
 │   │   ├── ids.js        # Id allocation and counter syncing
-│   │   └── config.js     # Parsed environment configuration
+│   │   ├── config.js     # Parsed environment configuration
+│   │   ├── cache.js      # Link cache with expiry-clamped TTL
+│   │   ├── listLinks.js  # Shared paginated listing
+│   │   ├── password.js   # scrypt hashing
+│   │   └── tokens.js     # Session JWT + cookie
 │   ├── middleware/
-│   │   └── rateLimit.js  # Per-IP rate limiters
+│   │   ├── rateLimit.js  # Per-IP rate limiters
+│   │   └── auth.js       # attachUser, requireUser, requireAdmin
 │   ├── config/
 │   │   └── redis.js      # Redis connection
 │   ├── package.json
@@ -191,6 +240,24 @@ Pixel-Link/
 ├── LICENSE
 └── README.md
 ```
+
+## 🔐 Admin
+
+Register normally, set `ADMIN_EMAIL` to that address, and restart - the account is
+promoted at boot. There is deliberately no endpoint that grants admin. `ADMIN_KEY`
+remains as break-glass access for curl, and keeps working if `JWT_SECRET` is rotated.
+
+### Bulk delete
+
+Irreversible, with no backup behind it, so it is gated several ways:
+
+- Disabled unless `ALLOW_DELETE_ALL=true`
+- Only runs against an explicit scope (`unclaimed`, `expired`, `user`, `all`) - a missing
+  or unknown scope is rejected rather than treated as "everything"
+- The request must echo back the exact current count (`DELETE 42`), so a stale preview
+  cannot fire it
+- Requires the admin password again, on top of the session cookie
+- Capped at 500 per call, and invalidates each deleted code from the cache
 
 ## 📝 License
 

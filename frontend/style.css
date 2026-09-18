@@ -654,3 +654,19 @@ body {
         padding: 12px 10px;
     }
 }
+
+/* Corner "back" link. Lives here rather than in dashboard.css because the
+   account and login pages use it too. */
+.back-link {
+    position: absolute;
+    top: 45px;
+    left: 100px;
+    color: var(--pixel-blue);
+    text-decoration: none;
+    font-size: 10px;
+    transition: color 0.2s;
+}
+
+.back-link:hover {
+    color: var(--pixel-pink);
+}

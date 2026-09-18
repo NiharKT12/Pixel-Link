@@ -12,6 +12,12 @@ function createDisabledClient() {
         async get() { return null; },
         async set() { return 'OK'; },
         async expire() { return 0; },
+        // del reports "nothing deleted" rather than throwing - cache
+        // invalidation must keep working when there is no cache at all
+        async del() { return 0; },
+        // Never reached (callers check redis.enabled first), but a missing
+        // method here would be a TypeError rather than a handled fallback
+        async incr() { throw new Error('Redis is disabled'); },
         async ping() { return null; },
         async quit() { return 'OK'; }
     };

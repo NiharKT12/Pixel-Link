@@ -1,18 +1,5 @@
 /* Dashboard specific styles */
 
-.back-link {
-    position: absolute;
-    top: 45px;
-    left: 100px;
-    color: var(--pixel-blue);
-    text-decoration: none;
-    font-size: 10px;
-    transition: color 0.2s;
-}
-
-.back-link:hover {
-    color: var(--pixel-pink);
-}
 
 /* Input styling - reuse main page style */
 #codeInput {

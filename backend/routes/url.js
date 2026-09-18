@@ -1,11 +1,13 @@
 const express = require('express');
 const router = express.Router();
 const Url = require('../models/Url');
-const redis = require('../config/redis');
+const cache = require('../lib/cache');
 const { encodeId, validateCustomCode } = require('../lib/shortcode');
 const { nextId } = require('../lib/ids');
-const { cacheTtl, baseUrl, adminKey } = require('../lib/config');
+const { baseUrl, guestExpiresAt } = require('../lib/config');
 const { shortenLimiter } = require('../middleware/rateLimit');
+const { requireAdmin } = require('../middleware/auth');
+const { listLinks } = require('../lib/listLinks');
 
 // Validate URL format
 function isValidUrl(string) {
@@ -14,32 +16,6 @@ function isValidUrl(string) {
         return url.protocol === 'http:' || url.protocol === 'https:';
     } catch (_) {
         return false;
-    }
-}
-
-// Reject requests that only an authorised operator should make
-function requireAdmin(req, res, next) {
-    const key = adminKey();
-
-    // Fail closed: an unset key locks the endpoint rather than opening it
-    if (!key) {
-        return res.status(503).json({ error: 'Admin endpoint is not configured' });
-    }
-
-    if (req.get('x-admin-key') !== key) {
-        return res.status(401).json({ error: 'Unauthorized' });
-    }
-
-    next();
-}
-
-// Cache a link, but never fail the request over a cache write - the link is
-// already durable in MongoDB by this point.
-async function cacheLink(shortCode, url) {
-    try {
-        await redis.set(`url:${shortCode}`, url, 'EX', cacheTtl());
-    } catch (err) {
-        console.error('⚠️  Cache write failed:', err.message);
     }
 }
 
@@ -58,6 +34,11 @@ router.post('/shorten', shortenLimiter, async (req, res, next) => {
 
     // Treat an empty/whitespace custom name as "not supplied"
     const wanted = typeof customCode === 'string' ? customCode.trim() : '';
+
+    // null for guests. Only guest links get an expiry - an owned link
+    // leaves the field absent, which a TTL index ignores entirely.
+    const ownerId = req.user ? req.user._id : null;
+    const expiresAt = ownerId ? undefined : guestExpiresAt() || undefined;
 
     if (wanted) {
         const problem = validateCustomCode(wanted);
@@ -83,7 +64,9 @@ router.post('/shorten', shortenLimiter, async (req, res, next) => {
                     originalUrl: url,
                     shortCode: wanted,
                     numericId,
-                    isCustom: true
+                    isCustom: true,
+                    owner: ownerId,
+                    expiresAt
                 }).save();
             } catch (err) {
                 // Lost a race against a concurrent request for the same name
@@ -93,23 +76,41 @@ router.post('/shorten', shortenLimiter, async (req, res, next) => {
                 throw err;
             }
 
-            await cacheLink(saved.shortCode, url);
+            await cache.setLink(saved.shortCode, url, saved.expiresAt);
 
             return res.status(201).json({
                 shortUrl: `${baseUrl()}/${saved.shortCode}`,
                 shortCode: saved.shortCode,
-                isCustom: true
+                isCustom: true,
+                expiresAt: saved.expiresAt || null
             });
         }
 
-        // Check if URL already exists
-        const existingUrl = await Url.findOne({ originalUrl: url, isCustom: { $ne: true } });
+        // Check if this owner already shortened this URL.
+        //
+        // Scoping by owner matters: unscoped, a signed-in user shortening a URL
+        // some guest had already shortened would be handed the guest's link -
+        // which then silently expires out from under them.
+        const existingUrl = await Url.findOne({
+            originalUrl: url,
+            isCustom: { $ne: true },
+            owner: ownerId
+        });
 
         if (existingUrl) {
+            // Re-shortening a guest link renews its lifetime, so an active
+            // link is never handed back about to expire. $max never shortens.
+            if (expiresAt && existingUrl.expiresAt) {
+                await Url.updateOne({ _id: existingUrl._id }, { $max: { expiresAt } });
+                existingUrl.expiresAt = new Date(Math.max(expiresAt, existingUrl.expiresAt));
+                await cache.setLink(existingUrl.shortCode, existingUrl.originalUrl, existingUrl.expiresAt);
+            }
+
             return res.json({
                 shortUrl: `${baseUrl()}/${existingUrl.shortCode}`,
                 shortCode: existingUrl.shortCode,
-                isCustom: false
+                isCustom: false,
+                expiresAt: existingUrl.expiresAt || null
             });
         }
 
@@ -125,7 +126,7 @@ router.post('/shorten', shortenLimiter, async (req, res, next) => {
             const shortCode = encodeId(numericId);
 
             try {
-                saved = await new Url({ originalUrl: url, shortCode, numericId }).save();
+                saved = await new Url({ originalUrl: url, shortCode, numericId, owner: ownerId, expiresAt }).save();
             } catch (err) {
                 if (err.code !== 11000) throw err;
                 lastError = err;
@@ -135,12 +136,13 @@ router.post('/shorten', shortenLimiter, async (req, res, next) => {
 
         if (!saved) throw lastError;
 
-        await cacheLink(saved.shortCode, url);
+        await cache.setLink(saved.shortCode, url, saved.expiresAt);
 
         res.status(201).json({
             shortUrl: `${baseUrl()}/${saved.shortCode}`,
             shortCode: saved.shortCode,
-            isCustom: false
+            isCustom: false,
+            expiresAt: saved.expiresAt || null
         });
 
     } catch (error) {
@@ -194,29 +196,7 @@ router.get('/stats/:code', async (req, res, next) => {
 // full link space, so it is never reachable without the shared key.
 router.get('/urls', requireAdmin, async (req, res, next) => {
     try {
-        const page = Math.max(1, parseInt(req.query.page, 10) || 1);
-        const limit = Math.min(100, Math.max(1, parseInt(req.query.limit, 10) || 20));
-
-        const [urls, totalLinks, totals] = await Promise.all([
-            Url.find()
-                .sort({ createdAt: -1 })
-                .skip((page - 1) * limit)
-                .limit(limit)
-                .select('shortCode originalUrl clicks isCustom createdAt')
-                .lean(),
-            Url.countDocuments(),
-            // Totals span the whole collection, not just this page
-            Url.aggregate([{ $group: { _id: null, clicks: { $sum: '$clicks' } } }])
-        ]);
-
-        res.json({
-            urls,
-            page,
-            limit,
-            totalPages: Math.ceil(totalLinks / limit) || 1,
-            totalLinks,
-            totalClicks: totals[0] ? totals[0].clicks : 0
-        });
+        res.json(await listLinks({}, req.query));
     } catch (error) {
         next(error);
     }
