@@ -10,6 +10,11 @@
     --pixel-blue: #54d7ff;
     --pixel-green: #7fff7f;
     --pixel-yellow: #ffeb3b;
+
+    /* Chunky pixel borders and offset shadows. Scaled down on small
+       screens - a fixed 4px border eats a painful share of a 320px row. */
+    --pixel-border: 4px;
+    --pixel-shadow: 4px;
 }
 
 body {
@@ -116,6 +121,11 @@ body {
     display: flex;
     flex-direction: column;
     align-items: center;
+    /* Without these the 40px padding is added OUTSIDE a child-driven width,
+       so the container grows wider than the screen on small phones. */
+    width: 100%;
+    max-width: 100%;
+    box-sizing: border-box;
 }
 
 #urlInput {
@@ -669,4 +679,36 @@ body {
 
 .back-link:hover {
     color: var(--pixel-pink);
+}
+
+/* Border and shadow weight scales with the viewport */
+@media (max-width: 680px) {
+    :root {
+        --pixel-border: 3px;
+        --pixel-shadow: 3px;
+    }
+}
+
+@media (max-width: 400px) {
+    :root {
+        --pixel-border: 2px;
+        --pixel-shadow: 2px;
+    }
+}
+
+/* Small-screen container and field constraints */
+#urlInput,
+#codeInput {
+    max-width: 100%;
+}
+
+#customInput {
+    /* A flex item will not shrink below its content width without this */
+    min-width: 0;
+}
+
+@media (max-width: 480px) {
+    .container {
+        padding: 28px 16px;
+    }
 }

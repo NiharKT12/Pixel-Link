@@ -14,13 +14,13 @@
     padding: 18px 24px;
     font-size: 12px;
     font-family: 'Press Start 2P', cursive;
-    border: 4px solid var(--pixel-blue);
+    border: var(--pixel-border) solid var(--pixel-blue);
     border-radius: 0;
     outline: none;
     text-align: center;
     background: #1a1a2e;
     color: white;
-    box-shadow: 4px 4px 0px var(--pixel-purple);
+    box-shadow: var(--pixel-shadow) var(--pixel-shadow) 0px var(--pixel-purple);
 }
 
 .auth-form input::placeholder {
@@ -129,6 +129,26 @@
     color: rgba(255, 255, 255, 0.45);
 }
 
+/* A long email can widen the nav until it reaches the centred title. Cap it
+   and ellipsize rather than letting it push into the heading. */
+.session-nav .session-link:not(.session-logout) {
+    max-width: 180px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+/* On the list pages the nav is long (back + email + admin + log out), so keep
+   it in normal flow under the title instead of racing it for the top-left
+   corner. The title is absolutely positioned, so this never collides. */
+body.page-list .session-nav {
+    position: static;
+    justify-content: center;
+    width: 100%;
+    margin-bottom: 26px;
+    flex-wrap: wrap;
+}
+
 @media (max-width: 768px) {
     .session-nav {
         left: 80px;
@@ -136,19 +156,24 @@
     }
 }
 
+/* The title is absolutely centred, so an absolutely positioned nav has to fit
+   in the gap beside it. Below this width there is no such gap - drop the nav
+   into normal flow instead of letting it run under the heading. */
+@media (max-width: 860px) {
+    .session-nav {
+        position: static;
+        justify-content: center;
+        width: 100%;
+        margin-top: 24px;
+        gap: 12px;
+        flex-wrap: wrap;
+    }
+}
+
 @media (max-width: 480px) {
     .auth-form input {
         font-size: 9px;
         padding: 14px 12px;
-    }
-
-    /* Same treatment as .dashboard-link: drop out of the corner and into the
-       normal flow, where there is room for it */
-    .session-nav {
-        position: static;
-        justify-content: center;
-        margin-top: 24px;
-        gap: 12px;
     }
 
     .session-link {
@@ -217,8 +242,8 @@
     gap: 16px;
     padding: 16px 18px;
     background: #16213e;
-    border: 4px solid var(--pixel-blue);
-    box-shadow: 4px 4px 0px var(--pixel-purple);
+    border: var(--pixel-border) solid var(--pixel-blue);
+    box-shadow: var(--pixel-shadow) var(--pixel-shadow) 0px var(--pixel-purple);
 }
 
 .link-main {
@@ -283,10 +308,11 @@
     font-size: 8px;
     color: #1a1a2e;
     background: var(--pixel-blue);
-    border: 3px solid #1a1a2e;
+    border: var(--pixel-border) solid #1a1a2e;
     border-radius: 0;
     cursor: pointer;
-    box-shadow: 3px 3px 0px var(--pixel-purple);
+    box-shadow: var(--pixel-shadow) var(--pixel-shadow) 0px var(--pixel-purple);
+    white-space: nowrap;
 }
 
 .row-btn:hover:not(:disabled) {
@@ -327,9 +353,10 @@
     font-size: 8px;
     color: #1a1a2e;
     background: var(--pixel-green);
-    border: 3px solid #1a1a2e;
+    border: var(--pixel-border) solid #1a1a2e;
     cursor: pointer;
-    box-shadow: 3px 3px 0px var(--pixel-purple);
+    box-shadow: var(--pixel-shadow) var(--pixel-shadow) 0px var(--pixel-purple);
+    white-space: nowrap;
 }
 
 .pager-btn:disabled {
@@ -374,15 +401,17 @@
     font-size: 9px;
     color: white;
     background: #1a1a2e;
-    border: 3px solid var(--pixel-blue);
+    border: var(--pixel-border) solid var(--pixel-blue);
     border-radius: 0;
     outline: none;
-    box-shadow: 3px 3px 0px var(--pixel-purple);
+    box-shadow: var(--pixel-shadow) var(--pixel-shadow) 0px var(--pixel-purple);
+    min-width: 0;
+    max-width: 100%;
 }
 
 .admin-controls input {
-    min-width: 260px;
-    flex: 1;
+    flex: 1 1 220px;
+    min-width: 0;
     max-width: 420px;
 }
 
@@ -407,9 +436,9 @@
 /* The only irreversible control on the page, kept behind a disclosure */
 .danger-zone {
     margin-top: 50px;
-    border: 4px solid #ff6b6b;
+    border: var(--pixel-border) solid #ff6b6b;
     background: rgba(255, 107, 107, 0.06);
-    box-shadow: 4px 4px 0px var(--pixel-purple);
+    box-shadow: var(--pixel-shadow) var(--pixel-shadow) 0px var(--pixel-purple);
 }
 
 .danger-zone summary {
@@ -425,6 +454,7 @@
     align-items: flex-start;
     gap: 14px;
     padding: 0 18px 20px;
+    min-width: 0;
 }
 
 .danger-note {
@@ -440,11 +470,12 @@
     font-size: 9px;
     color: white;
     background: #1a1a2e;
-    border: 3px solid #ff6b6b;
+    border: var(--pixel-border) solid #ff6b6b;
     border-radius: 0;
     outline: none;
-    min-width: 280px;
-    max-width: 100%;
+    width: 100%;
+    min-width: 0;
+    max-width: 360px;
 }
 
 #bulkConfirm {
@@ -452,6 +483,7 @@
     flex-direction: column;
     align-items: flex-start;
     gap: 12px;
+    width: 100%;
 }
 
 /* List pages can be taller than the viewport. The default body centres its
@@ -500,4 +532,37 @@ body.page-list {
 .sign-in-prompt-link:focus-visible {
     outline: 3px solid var(--pixel-yellow);
     outline-offset: 3px;
+}
+
+/* Admin controls stack and fill the width once there is no room for a row */
+@media (max-width: 560px) {
+    .admin-controls {
+        flex-direction: column;
+        align-items: stretch;
+        gap: 10px;
+    }
+
+    .admin-controls input,
+    .admin-controls select {
+        width: 100%;
+        max-width: 100%;
+        /* The row layout gives the input flex: 1 1 220px. Once the container is
+           a column that 220px basis becomes a minimum HEIGHT, which inflates the
+           search box - so drop back to intrinsic sizing here. */
+        flex: 0 0 auto;
+    }
+
+    .danger-zone select,
+    .danger-zone input {
+        max-width: 100%;
+    }
+
+    .link-row {
+        padding: 14px 12px;
+    }
+
+    .stat-row {
+        flex-wrap: wrap;
+        gap: 18px 28px;
+    }
 }

@@ -121,10 +121,17 @@ async function renderSessionNav(container) {
         return null;
     }
 
+    // The list pages render the nav in normal flow, where a full email fits.
+    // The centred pages position it absolutely opposite a centred title, so a
+    // long email would grow the nav until it collided with the heading - show
+    // a short label there instead.
+    const roomy = document.body.classList.contains('page-list');
+
     const who = document.createElement('a');
     who.href = 'account.html';
     who.className = 'session-link';
-    who.textContent = user.email;
+    who.textContent = roomy ? user.email : 'Account';
+    who.title = user.email;
     container.appendChild(who);
 
     if (user.role === 'admin') {
