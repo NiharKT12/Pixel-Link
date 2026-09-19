@@ -109,11 +109,15 @@ async function renderSessionNav(container) {
     }
 
     if (!user) {
-        const link = document.createElement('a');
-        link.href = 'login.html';
-        link.className = 'session-link';
-        link.textContent = 'Sign in';
-        container.appendChild(link);
+        // The sign-in page sets data-hide-signin: offering "Sign in" there
+        // would just point at the page you are already on.
+        if (container.dataset.hideSignin === undefined) {
+            const link = document.createElement('a');
+            link.href = 'login.html';
+            link.className = 'session-link';
+            link.textContent = 'Sign in';
+            container.appendChild(link);
+        }
         return null;
     }
 

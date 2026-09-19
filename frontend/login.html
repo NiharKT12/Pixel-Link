@@ -22,9 +22,9 @@
         <span></span><span></span><span></span><span></span><span></span>
     </div>
 
-    <h1 class="title" id="pageTitle">Sign In</h1>
+    <nav class="session-nav" id="sessionNav" aria-label="Account" data-back="index.html" data-hide-signin></nav>
 
-    <a href="index.html" class="back-link">&larr; Back</a>
+    <h1 class="title" id="pageTitle">Sign In</h1>
 
     <main class="container">
         <form class="auth-form" id="authForm" novalidate>
@@ -46,9 +46,7 @@
             <button type="button" id="switchBtn" class="link-button">Create one</button>
         </p>
 
-        <p class="auth-note">
-            Links made while signed out are deleted after a week. Signing in keeps them.
-        </p>
+        <p class="auth-note" id="authNote"></p>
     </main>
 
     <div class="pixel-dots bottom" aria-hidden="true">
@@ -58,6 +56,7 @@
     <script src="app.js"></script>
     <script>
         warmBackend();
+        renderSessionNav(document.getElementById('sessionNav'));
 
         const authForm = document.getElementById('authForm');
         const emailInput = document.getElementById('emailInput');
@@ -67,6 +66,19 @@
         const switchPrompt = document.getElementById('switchPrompt');
         const pageTitle = document.getElementById('pageTitle');
         const showError = createErrorReporter(document.getElementById('errorMsg'), 5000);
+        const authNote = document.getElementById('authNote');
+
+        // Describe the actual policy rather than a hardcoded one - guest expiry
+        // can be switched off, and claiming links vanish when they do not would
+        // be plainly wrong.
+        requestJson('/api/config').then((info) => {
+            const days = info.guestLinkTtlDays || 0;
+            authNote.textContent = days > 0
+                ? 'Links made while signed out are deleted after ' + days + ' days. Signing in keeps them.'
+                : 'Signing in lets you keep track of your links and see their analytics.';
+        }).catch(() => {
+            authNote.textContent = 'Signing in lets you keep track of your links and see their analytics.';
+        });
 
         // Where to land after signing in, so a 401 redirect can send the user back
         const params = new URLSearchParams(location.search);

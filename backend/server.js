@@ -72,6 +72,17 @@ app.get('/health', async (req, res) => {
     });
 });
 
+// Public, non-sensitive settings the frontend needs in order to describe itself
+// accurately - chiefly whether guest links actually expire on this deployment,
+// so the UI never promises an expiry that is switched off (or stays silent
+// about one that is switched on).
+app.get('/api/config', (req, res) => {
+    res.json({
+        guestLinkTtlDays: guestTtlDays(),
+        accountsEnabled: Boolean(jwtSecret())
+    });
+});
+
 // Diagnostic for the trust-proxy setting. Returns what the app believes the
 // client IP is - if this is not your real address, rate limiting is broken.
 app.get('/debug/ip', (req, res) => {

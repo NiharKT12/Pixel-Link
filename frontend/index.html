@@ -43,6 +43,8 @@
 
         <button id="shortenBtn">Shorten</button>
         <div id="errorMsg" class="error-message" role="status" aria-live="polite"></div>
+
+        <p id="signInPrompt" class="sign-in-prompt" hidden></p>
     </main>
 
     <div class="pixel-dots bottom" aria-hidden="true">
@@ -72,7 +74,37 @@
     <script src="app.js"></script>
     <script>
         warmBackend();
-        renderSessionNav(document.getElementById('sessionNav'));
+        // Tell signed-out visitors why an account is worth having. The wording
+        // depends on whether guest links actually expire on this deployment, so
+        // it is read from the server rather than hardcoded - promising a 7-day
+        // expiry while GUEST_LINK_TTL_DAYS is 0 would simply be untrue.
+        async function renderSignInPrompt(user) {
+            if (user) {
+                signInPrompt.hidden = true;
+                return;
+            }
+
+            let days = 0;
+            try {
+                const info = await requestJson('/api/config');
+                days = info.guestLinkTtlDays || 0;
+            } catch (_) {
+                // Fall back to the softer wording if the server cannot be reached
+            }
+
+            signInPrompt.textContent = days > 0
+                ? 'Links you make now disappear after ' + days + ' days. '
+                : 'Want to keep your links and see their analytics? ';
+
+            const link = document.createElement('a');
+            link.href = 'login.html';
+            link.className = 'sign-in-prompt-link';
+            link.textContent = days > 0 ? 'Sign in to keep them' : 'Sign in';
+            signInPrompt.appendChild(link);
+
+            signInPrompt.hidden = false;
+        }
+
 
         const urlInput = document.getElementById('urlInput');
         const shortenBtn = document.getElementById('shortenBtn');
@@ -82,9 +114,12 @@
         const copyBtn = document.getElementById('copyBtn');
         const copyStatus = document.getElementById('copyStatus');
         const expiryNote = document.getElementById('expiryNote');
+        const signInPrompt = document.getElementById('signInPrompt');
         const customInput = document.getElementById('customInput');
         const availability = document.getElementById('availability');
         const showError = createErrorReporter(document.getElementById('errorMsg'));
+
+        renderSessionNav(document.getElementById('sessionNav')).then(renderSignInPrompt);
 
         // Element focused before the dialog opened, so focus can be handed back
         let lastFocused = null;

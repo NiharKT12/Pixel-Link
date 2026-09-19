@@ -11,8 +11,8 @@
 
 .auth-form input {
     width: 100%;
-    padding: 16px 20px;
-    font-size: 11px;
+    padding: 18px 24px;
+    font-size: 12px;
     font-family: 'Press Start 2P', cursive;
     border: 4px solid var(--pixel-blue);
     border-radius: 0;
@@ -41,7 +41,7 @@
 
 .auth-form button[type="submit"] {
     margin-top: 8px;
-    padding: 16px 40px;
+    padding: 16px 50px;
     font-size: 12px;
     font-family: 'Press Start 2P', cursive;
     color: #1a1a2e;
@@ -476,4 +476,28 @@ body.page-list {
     line-height: 2;
     color: var(--pixel-yellow);
     text-align: center;
+}
+
+/* Persistent nudge on the main page for signed-out visitors */
+.sign-in-prompt {
+    margin-top: 26px;
+    max-width: 420px;
+    font-size: 8px;
+    line-height: 2.2;
+    text-align: center;
+    color: rgba(255, 255, 255, 0.45);
+}
+
+.sign-in-prompt-link {
+    color: var(--pixel-blue);
+    text-decoration: underline;
+}
+
+.sign-in-prompt-link:hover {
+    color: var(--pixel-pink);
+}
+
+.sign-in-prompt-link:focus-visible {
+    outline: 3px solid var(--pixel-yellow);
+    outline-offset: 3px;
 }
