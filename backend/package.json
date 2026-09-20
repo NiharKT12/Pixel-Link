@@ -18,7 +18,8 @@
   "scripts": {
     "start": "node server.js",
     "dev": "node --watch server.js",
-    "test": "node --test"
+    "test": "node --test --test-concurrency=1 \"test/*.test.js\"",
+    "test:watch": "node --test --watch \"test/*.test.js\""
   },
   "dependencies": {
     "cookie-parser": "^1.4.7",
@@ -29,5 +30,13 @@
     "ioredis": "^5.8.2",
     "jsonwebtoken": "^9.0.3",
     "mongoose": "^9.1.1"
+  },
+  "devDependencies": {
+    "mongodb-memory-server": "^11.2.0"
+  },
+  "config": {
+    "mongodbMemoryServer": {
+      "disablePostinstall": true
+    }
   }
 }

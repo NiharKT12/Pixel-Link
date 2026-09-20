@@ -33,9 +33,6 @@ app.use(cors({ origin: corsOrigin(), credentials: true }));
 app.use(express.json({ limit: '10kb' }));
 app.use(cookieParser());
 
-// Populates req.user when signed in; never rejects anonymous requests
-app.use(attachUser);
-
 // Root route
 app.get('/', (req, res) => {
     res.json({ message: 'Pixel Link API is running', endpoints: {
@@ -95,6 +92,14 @@ app.get('/debug/ip', (req, res) => {
 });
 
 // Routes
+//
+// attachUser is mounted here rather than globally on purpose. It verifies the
+// session cookie and loads the user from MongoDB, and the redirect handler
+// below is the hottest path in the app - mounting it globally meant every
+// redirect by a signed-in visitor paid an extra database round trip for a
+// value the redirect never reads.
+app.use('/api', attachUser);
+
 app.use('/api/auth', authRoutes);
 app.use('/api/me', apiLimiter, meRoutes);
 app.use('/api/admin', apiLimiter, adminRoutes);
@@ -230,9 +235,14 @@ mongoose.connect(process.env.MONGO_URI)
         await auditExpiry();
         await promoteAdmin();
 
-        app.listen(PORT, () => {
-            console.log(`🚀 Server running on http://localhost:${PORT}`);
-        });
+        // Tests import this module to exercise the real app and bind their own
+        // ephemeral port. Binding here as well would leave a handle open and
+        // stop the test process from ever exiting.
+        if (process.env.NODE_ENV !== 'test') {
+            app.listen(PORT, () => {
+                console.log(`🚀 Server running on http://localhost:${PORT}`);
+            });
+        }
     })
     .catch((err) => {
         console.error('❌ MongoDB connection error:', err);

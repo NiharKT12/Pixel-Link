@@ -184,6 +184,7 @@ curl https://pixel-link-2xiq.onrender.com/api/urls?page=1&limit=20 \
 | `TRUST_PROXY_HOPS` | no | Proxies in front of the app (default `1`; `2` behind the Vercel API proxy) |
 | `GUEST_LINK_TTL_DAYS` | no | Guest link lifetime in days. `0` (default) disables expiry |
 | `ALLOW_DELETE_ALL` | no | Enables admin bulk delete. Off unless exactly `true` |
+| `RATE_LIMIT_*_MAX` | no | Tune a limiter without editing code: `SHORTEN` (30), `AUTH` (10), `REGISTER` (5), `API` (300) |
 
 4. **Start the backend**
    ```bash
@@ -258,6 +259,19 @@ Irreversible, with no backup behind it, so it is gated several ways:
   cannot fire it
 - Requires the admin password again, on top of the session cookie
 - Capped at 500 per call, and invalidates each deleted code from the cache
+
+## 🧪 Tests
+
+```bash
+cd backend
+npm test                    # ~20s
+RUN_SLOW_TESTS=1 npm test   # adds the ~60s TTL sweep
+```
+
+No local MongoDB or Redis needed - each test file boots the real `server.js`
+against an in-memory MongoDB and an in-process Redis. See
+[`backend/test/README.md`](backend/test/README.md) for the layout and the
+gotchas worth knowing before adding tests.
 
 ## 📝 License
 
